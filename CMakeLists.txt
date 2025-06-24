@@ -121,9 +121,9 @@ add_custom_target(shaders DEPENDS ${SPIRV_BINARY_FILES})
 
 
 file(GLOB_RECURSE CPP_SOURCE_FILES
-    "${PROJECT_SOURCE_DIR}/src/*.h"
-    "${PROJECT_SOURCE_DIR}/src/*.hpp"
-    "${PROJECT_SOURCE_DIR}/src/*.cpp"
+    ${PROJECT_SOURCE_DIR}/src/*.h
+    ${PROJECT_SOURCE_DIR}/src/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/*.cpp
 )
 
 add_executable (engine ${CPP_SOURCE_FILES})
