@@ -75,6 +75,12 @@ void VulkanEngine::Terminate() noexcept
         return;
     }
 
+    vkDeviceWaitIdle(m_pVkDevice);
+
+    for (size_t i = 0; i < FRAMES_DATA_INST_COUNT; ++i) {
+        vkDestroyCommandPool(m_pVkDevice, m_framesData[i].pVkCmdPool, nullptr);
+    }
+
     DestroySwapChain();
 
     vkDestroySurfaceKHR(m_pVkInstance, m_pVkSurface, nullptr);
@@ -203,6 +209,9 @@ bool VulkanEngine::InitVulkan() noexcept
     m_pVkDevice = vkbDevice.device;
     m_pVkPhysDevice = vkbDevice.physical_device;
 
+    m_pVkGraphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+    m_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
     return true;
 }
 
@@ -217,10 +226,10 @@ bool VulkanEngine::CreateSwapChain(uint32_t width, uint32_t height) noexcept
 {
     vkb::SwapchainBuilder vkbSwapChainBuilder(m_pVkPhysDevice, m_pVkDevice, m_pVkSurface);
 
-	m_swapChainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	m_vkSwapChainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
 
     VkSurfaceFormatKHR surfaceFormat = {};
-    surfaceFormat.format = m_swapChainImageFormat;
+    surfaceFormat.format = m_vkSwapChainImageFormat;
     surfaceFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 
 	vkb::Result<vkb::Swapchain> vkbSwapChainBuildResult = vkbSwapChainBuilder
@@ -237,11 +246,11 @@ bool VulkanEngine::CreateSwapChain(uint32_t width, uint32_t height) noexcept
 
     vkb::Swapchain& vkbSwapChain = vkbSwapChainBuildResult.value();
 
-	m_swapChainExtent = vkbSwapChain.extent;
+	m_vkSwapChainExtent = vkbSwapChain.extent;
     
 	m_pVkSwapChain = vkbSwapChain.swapchain;
-	m_swapChainImages = vkbSwapChain.get_images().value();
-	m_swapChainImageViews = vkbSwapChain.get_image_views().value();
+	m_vkSwapChainImages = vkbSwapChain.get_images().value();
+	m_vkSwapChainImageViews = vkbSwapChain.get_image_views().value();
 
     return true;
 }
@@ -251,14 +260,24 @@ void VulkanEngine::DestroySwapChain() noexcept
 {
     vkDestroySwapchainKHR(m_pVkDevice, m_pVkSwapChain, nullptr);
 
-	for (size_t i = 0; i < m_swapChainImageViews.size(); ++i) {
-		vkDestroyImageView(m_pVkDevice, m_swapChainImageViews[i], nullptr);
+	for (size_t i = 0; i < m_vkSwapChainImageViews.size(); ++i) {
+		vkDestroyImageView(m_pVkDevice, m_vkSwapChainImageViews[i], nullptr);
 	}
 }
 
 
 bool VulkanEngine::InitCommands() noexcept
 {
+    const VkCommandPoolCreateInfo cmdPoolCreateInfo = vkinit::CmdPoolCreateInfo(m_graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+
+    for (size_t i = 0; i < FRAMES_DATA_INST_COUNT; ++i) {
+        ENG_VK_CHECK(vkCreateCommandPool(m_pVkDevice, &cmdPoolCreateInfo, nullptr, &m_framesData[i].pVkCmdPool));
+
+        const VkCommandBufferAllocateInfo cmdBufferAllocateInfo = vkinit::CmdBufferAllocateInfo(m_framesData[i].pVkCmdPool, 1);
+
+        ENG_VK_CHECK(vkAllocateCommandBuffers(m_pVkDevice, &cmdBufferAllocateInfo, &m_framesData[i].pVkCmdBuffer));
+    }
+
     return true;
 }
 

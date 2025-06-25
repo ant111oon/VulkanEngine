@@ -5,8 +5,14 @@ project (VkEngine LANGUAGES CXX)
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+
 find_package(Vulkan REQUIRED)
 find_program(GLSL_VALIDATOR glslangValidator HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
+
 
 include(FetchContent)
 
@@ -17,12 +23,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+
 FetchContent_Declare(
     fmt
     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
     GIT_TAG        11.2.0
 )
 FetchContent_MakeAvailable(fmt)
+
 
 FetchContent_Declare(
     SDL2
@@ -31,6 +39,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(SDL2)
 
+
 FetchContent_Declare(
     fastgltf
     GIT_REPOSITORY https://github.com/spnda/fastgltf.git
@@ -38,12 +47,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(fastgltf)
 
+
 FetchContent_Declare(
     volk
     GIT_REPOSITORY https://github.com/zeux/volk.git
     GIT_TAG        1.4.304
 )
 FetchContent_MakeAvailable(SDL2)
+
 
 FetchContent_Declare(
     imgui
@@ -64,7 +75,6 @@ add_library(imgui STATIC
 )
 
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
-
 target_link_libraries(imgui PUBLIC Vulkan::Vulkan SDL2::SDL2)
 
 
@@ -78,12 +88,14 @@ FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
 target_include_directories(stb_image INTERFACE ${stb_image_SOURCE_DIR})
 
+
 FetchContent_Declare(
     vkbootstrap
     GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap.git
     GIT_TAG        v1.4.319
 )
 FetchContent_MakeAvailable(vkbootstrap)
+
 
 FetchContent_Declare(
     vma
@@ -128,7 +140,6 @@ file(GLOB_RECURSE CPP_SOURCE_FILES
 
 add_executable (engine ${CPP_SOURCE_FILES})
 
-set_property(TARGET engine PROPERTY CXX_STANDARD 20)
 target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE)
 
 target_include_directories(engine 
@@ -137,9 +148,8 @@ target_include_directories(engine
 )
 
 # target_compile_options(engine PRIVATE
-#     $<$<CXX_COMPILER_ID:MSVC>:/W4>
-#     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
-# )
+#     $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>,$<CXX_COMPILER_ID:GNU>>: -Wall -Wextra -Wpedantic>
+#     $<$<CXX_COMPILER_ID:MSVC>: /W4 /WX>)
 
 target_link_libraries(engine PUBLIC vma glm imgui stb_image Vulkan::Vulkan fmt::fmt SDL2::SDL2 vk-bootstrap::vk-bootstrap fastgltf::fastgltf)
 

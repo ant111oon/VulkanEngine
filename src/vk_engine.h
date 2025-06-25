@@ -2,9 +2,21 @@
 
 #include "vk.h"
 
+#include <array>
+#include <cstdint>
+
 
 class VulkanEngine final
 {
+private:
+    struct FrameData
+    {
+        VkCommandPool pVkCmdPool;
+        VkCommandBuffer pVkCmdBuffer;
+    };
+
+    static constexpr size_t FRAMES_DATA_INST_COUNT = UINTMAX_C(2);
+
 public:
     static VulkanEngine& GetInstance() noexcept;
 
@@ -35,6 +47,8 @@ private:
     bool InitCommands() noexcept;
     bool InitSyncStructures() noexcept;
 
+    FrameData& GetCurrentFrameData() noexcept { return m_framesData[m_frameNumber % FRAMES_DATA_INST_COUNT]; }
+
 private:
     struct SDL_Window* m_pWindow = nullptr;
 	VkExtent2D m_windowExtent = { 900 , 640 };
@@ -46,11 +60,16 @@ private:
     VkSurfaceKHR m_pVkSurface = VK_NULL_HANDLE;
     
     VkSwapchainKHR m_pVkSwapChain = VK_NULL_HANDLE;
-    VkFormat m_swapChainImageFormat;
-    VkExtent2D m_swapChainExtent;
+    VkFormat m_vkSwapChainImageFormat;
+    VkExtent2D m_vkSwapChainExtent;
 
-    std::vector<VkImage> m_swapChainImages;
-    std::vector<VkImageView> m_swapChainImageViews;
+    std::vector<VkImage> m_vkSwapChainImages;
+    std::vector<VkImageView> m_vkSwapChainImageViews;
+
+    std::array<FrameData, FRAMES_DATA_INST_COUNT> m_framesData;
+
+    VkQueue m_pVkGraphicsQueue = VK_NULL_HANDLE;
+    uint32_t m_graphicsQueueFamily;
 
 	uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;
