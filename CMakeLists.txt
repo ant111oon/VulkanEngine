@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.8)
 
-project (VkEngine)
+project (VkEngine LANGUAGES CXX)
 
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
@@ -136,10 +136,10 @@ target_include_directories(engine
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_compile_options(engine PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4>
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
-)
+# target_compile_options(engine PRIVATE
+#     $<$<CXX_COMPILER_ID:MSVC>:/W4>
+#     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
+# )
 
 target_link_libraries(engine PUBLIC vma glm imgui stb_image Vulkan::Vulkan fmt::fmt SDL2::SDL2 vk-bootstrap::vk-bootstrap fastgltf::fastgltf)
 
