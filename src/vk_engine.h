@@ -13,6 +13,10 @@ private:
     {
         VkCommandPool pVkCmdPool;
         VkCommandBuffer pVkCmdBuffer;
+
+        VkSemaphore pVkSwapChainSemaphore;
+        VkSemaphore pVkRenderSemaphore;
+	    VkFence pVkRenderFence;
     };
 
     static constexpr size_t FRAMES_DATA_INST_COUNT = UINTMAX_C(2);

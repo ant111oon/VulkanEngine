@@ -3,6 +3,7 @@
 #include "vk_engine.h"
 
 #include "vk_initializers.h"
+#include "vk_images.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
@@ -79,6 +80,10 @@ void VulkanEngine::Terminate() noexcept
 
     for (size_t i = 0; i < FRAMES_DATA_INST_COUNT; ++i) {
         vkDestroyCommandPool(m_pVkDevice, m_framesData[i].pVkCmdPool, nullptr);
+
+        vkDestroyFence(m_pVkDevice, m_framesData[i].pVkRenderFence, nullptr);
+		vkDestroySemaphore(m_pVkDevice, m_framesData[i].pVkRenderSemaphore, nullptr);
+		vkDestroySemaphore(m_pVkDevice ,m_framesData[i].pVkSwapChainSemaphore, nullptr);
     }
 
     DestroySwapChain();
@@ -142,7 +147,66 @@ VulkanEngine::~VulkanEngine()
 
 void VulkanEngine::Render() noexcept
 {
+    const FrameData& currFrameData = GetCurrentFrameData();
 
+    constexpr uint64_t waitRenderFenceTimeoutNs = 1'000'000'000;
+
+    ENG_VK_CHECK(vkWaitForFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence, true, waitRenderFenceTimeoutNs));
+	ENG_VK_CHECK(vkResetFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence));
+
+    constexpr uint64_t acquireNextSwapChainImageTimeoutNs = 1'000'000'000;
+
+    uint32_t swapChainImageIndex;
+    vkAcquireNextImageKHR(m_pVkDevice, m_pVkSwapChain, acquireNextSwapChainImageTimeoutNs,
+        currFrameData.pVkSwapChainSemaphore, nullptr, &swapChainImageIndex);
+
+    VkCommandBuffer pCmdBuf = currFrameData.pVkCmdBuffer;
+
+    ENG_VK_CHECK(vkResetCommandBuffer(pCmdBuf, 0));
+
+    const VkCommandBufferBeginInfo cmdBuffBeginInfo = vkinit::CmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+    ENG_VK_CHECK(vkBeginCommandBuffer(pCmdBuf, &cmdBuffBeginInfo));
+
+    VkImage& pCurrImage = m_vkSwapChainImages[swapChainImageIndex];
+
+    vkutil::TransitImage(pCmdBuf, pCurrImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+    VkClearColorValue clearValue = {};
+    clearValue.float32[0] = 0.f;
+    clearValue.float32[1] = 0.f;
+    clearValue.float32[2] = std::abs(std::sin(m_frameNumber / 120.f));
+    clearValue.float32[3] = 1.f;
+
+    VkImageSubresourceRange clearRange = vkinit::ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+
+    vkCmdClearColorImage(pCmdBuf, pCurrImage, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+    vkutil::TransitImage(pCmdBuf, pCurrImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+	ENG_VK_CHECK(vkEndCommandBuffer(pCmdBuf));
+
+    VkCommandBufferSubmitInfo cmdBufSubmitInfo = vkinit::CmdBufferSubmitInfo(pCmdBuf);	
+	
+	VkSemaphoreSubmitInfo waitInfo = vkinit::SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, currFrameData.pVkSwapChainSemaphore);
+	VkSemaphoreSubmitInfo signalInfo = vkinit::SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, currFrameData.pVkRenderSemaphore);	
+	
+	VkSubmitInfo2 submitInfo2 = vkinit::SubmitInfo2(&cmdBufSubmitInfo, &signalInfo, &waitInfo);	
+
+	ENG_VK_CHECK(vkQueueSubmit2(m_pVkGraphicsQueue, 1, &submitInfo2, currFrameData.pVkRenderFence));
+
+    VkPresentInfoKHR presentInfo = {};
+
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.pNext = nullptr;
+	presentInfo.pSwapchains = &m_pVkSwapChain;
+	presentInfo.swapchainCount = 1;
+	presentInfo.pWaitSemaphores = &currFrameData.pVkRenderSemaphore;
+	presentInfo.waitSemaphoreCount = 1;
+	presentInfo.pImageIndices = &swapChainImageIndex;
+
+	ENG_VK_CHECK(vkQueuePresentKHR(m_pVkGraphicsQueue, &presentInfo));
+
+	++m_frameNumber;
 }
 
 
@@ -284,5 +348,15 @@ bool VulkanEngine::InitCommands() noexcept
 
 bool VulkanEngine::InitSyncStructures() noexcept
 {
+    const VkFenceCreateInfo fenceCreateInfo = vkinit::FenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
+	const VkSemaphoreCreateInfo semaphoreCreateInfo = vkinit::SemaphoreCreateInfo();
+
+	for (size_t i = 0; i < FRAMES_DATA_INST_COUNT; ++i) {
+		ENG_VK_CHECK(vkCreateFence(m_pVkDevice, &fenceCreateInfo, nullptr, &m_framesData[i].pVkRenderFence));
+
+		ENG_VK_CHECK(vkCreateSemaphore(m_pVkDevice, &semaphoreCreateInfo, nullptr, &m_framesData[i].pVkSwapChainSemaphore));
+		ENG_VK_CHECK(vkCreateSemaphore(m_pVkDevice, &semaphoreCreateInfo, nullptr, &m_framesData[i].pVkRenderSemaphore));
+	}
+
     return true;
 }

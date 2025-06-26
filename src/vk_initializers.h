@@ -7,6 +7,20 @@
 
 namespace vkinit
 {
-    VkCommandPoolCreateInfo CmdPoolCreateInfo(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags = 0);
-    VkCommandBufferAllocateInfo CmdBufferAllocateInfo(VkCommandPool pVkCmdPool, uint32_t count = UINT32_C(0));
+    VkCommandPoolCreateInfo CmdPoolCreateInfo(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags = 0) noexcept;
+    VkCommandBufferAllocateInfo CmdBufferAllocateInfo(VkCommandPool pVkCmdPool, uint32_t count = UINT32_C(0)) noexcept;
+
+    VkFenceCreateInfo FenceCreateInfo(VkFenceCreateFlags flags = 0) noexcept;
+    VkSemaphoreCreateInfo SemaphoreCreateInfo(VkSemaphoreCreateFlags flags = 0) noexcept;
+
+    VkCommandBufferBeginInfo CmdBufferBeginInfo(VkCommandBufferUsageFlags flags = 0) noexcept;
+
+    VkImageSubresourceRange ImageSubresourceRange(VkImageAspectFlags aspectMask) noexcept;
+
+    VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stageMask, VkSemaphore pSemaphore) noexcept;
+
+    VkCommandBufferSubmitInfo CmdBufferSubmitInfo(VkCommandBuffer pCmdBuf) noexcept;
+
+    VkSubmitInfo2 SubmitInfo2(VkCommandBufferSubmitInfo* pCmdBufSubmitInfo, VkSemaphoreSubmitInfo* pSignalSemaphoreInfo,
+        VkSemaphoreSubmitInfo* pWaitSemaphoreInfo) noexcept;
 }
