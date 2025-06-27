@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vk.h"
+#include "vk_types.h"
 
 #include <cstdint>
 
@@ -23,4 +23,7 @@ namespace vkinit
 
     VkSubmitInfo2 SubmitInfo2(VkCommandBufferSubmitInfo* pCmdBufSubmitInfo, VkSemaphoreSubmitInfo* pSignalSemaphoreInfo,
         VkSemaphoreSubmitInfo* pWaitSemaphoreInfo) noexcept;
+
+    VkImageCreateInfo ImageCreateInfo(const VkExtent3D& extent, VkFormat format, VkImageUsageFlags usageFlags) noexcept;
+    VkImageViewCreateInfo ImageViewCreateInfo(VkImage pImage, VkFormat format, VkImageAspectFlags aspectFlags) noexcept;
 }

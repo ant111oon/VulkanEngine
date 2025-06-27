@@ -10,6 +10,9 @@
 
 #include <VkBootstrap.h>
 
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
+
 
 #define ENG_CHECK_SDL_ERROR(COND, ...)                      \
     if (!(COND)) {                                          \
@@ -84,7 +87,11 @@ void VulkanEngine::Terminate() noexcept
         vkDestroyFence(m_pVkDevice, m_framesData[i].pVkRenderFence, nullptr);
 		vkDestroySemaphore(m_pVkDevice, m_framesData[i].pVkRenderSemaphore, nullptr);
 		vkDestroySemaphore(m_pVkDevice ,m_framesData[i].pVkSwapChainSemaphore, nullptr);
+    
+        m_framesData[i].deletionQueue.Flush();
     }
+
+    m_mainDeletionQueue.Flush();
 
     DestroySwapChain();
 
@@ -147,18 +154,20 @@ VulkanEngine::~VulkanEngine()
 
 void VulkanEngine::Render() noexcept
 {
-    const FrameData& currFrameData = GetCurrentFrameData();
+    FrameData& currFrameData = GetCurrentFrameData();
 
     constexpr uint64_t waitRenderFenceTimeoutNs = 1'000'000'000;
 
     ENG_VK_CHECK(vkWaitForFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence, true, waitRenderFenceTimeoutNs));
-	ENG_VK_CHECK(vkResetFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence));
+    ENG_VK_CHECK(vkResetFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence));
+	
+    currFrameData.deletionQueue.Flush();
 
     constexpr uint64_t acquireNextSwapChainImageTimeoutNs = 1'000'000'000;
 
     uint32_t swapChainImageIndex;
     vkAcquireNextImageKHR(m_pVkDevice, m_pVkSwapChain, acquireNextSwapChainImageTimeoutNs,
-        currFrameData.pVkSwapChainSemaphore, nullptr, &swapChainImageIndex);
+        currFrameData.pVkSwapChainSemaphore, VK_NULL_HANDLE, &swapChainImageIndex);
 
     VkCommandBuffer pCmdBuf = currFrameData.pVkCmdBuffer;
 
@@ -167,21 +176,16 @@ void VulkanEngine::Render() noexcept
     const VkCommandBufferBeginInfo cmdBuffBeginInfo = vkinit::CmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     ENG_VK_CHECK(vkBeginCommandBuffer(pCmdBuf, &cmdBuffBeginInfo));
 
-    VkImage& pCurrImage = m_vkSwapChainImages[swapChainImageIndex];
+    vkutil::TransitImage(pCmdBuf, m_rndImage.pImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-    vkutil::TransitImage(pCmdBuf, pCurrImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    RenderBackground(pCmdBuf);
 
-    VkClearColorValue clearValue = {};
-    clearValue.float32[0] = 0.f;
-    clearValue.float32[1] = 0.f;
-    clearValue.float32[2] = std::abs(std::sin(m_frameNumber / 120.f));
-    clearValue.float32[3] = 1.f;
+    vkutil::TransitImage(pCmdBuf, m_rndImage.pImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    
+    vkutil::TransitImage(pCmdBuf, m_vkSwapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    vkutil::CopyImage(pCmdBuf, m_rndImage.pImage, m_rndExtent, m_vkSwapChainImages[swapChainImageIndex], m_swapChainExtent);
 
-    VkImageSubresourceRange clearRange = vkinit::ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-
-    vkCmdClearColorImage(pCmdBuf, pCurrImage, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
-
-    vkutil::TransitImage(pCmdBuf, pCurrImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    vkutil::TransitImage(pCmdBuf, m_vkSwapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 	ENG_VK_CHECK(vkEndCommandBuffer(pCmdBuf));
 
@@ -207,6 +211,20 @@ void VulkanEngine::Render() noexcept
 	ENG_VK_CHECK(vkQueuePresentKHR(m_pVkGraphicsQueue, &presentInfo));
 
 	++m_frameNumber;
+}
+
+
+void VulkanEngine::RenderBackground(VkCommandBuffer pCmdBuf) noexcept
+{
+    VkClearColorValue clearValue = {};
+    clearValue.float32[0] = std::abs(std::cos(m_frameNumber / 30.f));
+    clearValue.float32[1] = 0.f;
+    clearValue.float32[2] = std::abs(std::sin(m_frameNumber / 60.f));
+    clearValue.float32[3] = 1.f;
+
+    VkImageSubresourceRange clearRange = vkinit::ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+
+    vkCmdClearColorImage(pCmdBuf, m_rndImage.pImage, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 }
 
 
@@ -276,13 +294,56 @@ bool VulkanEngine::InitVulkan() noexcept
     m_pVkGraphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
     m_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
 
+    VmaAllocatorCreateInfo vmaCreateInfo = {};
+    vmaCreateInfo.physicalDevice = m_pVkPhysDevice;
+    vmaCreateInfo.device = m_pVkDevice;
+    vmaCreateInfo.instance = m_pVkInstance;
+    vmaCreateInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+    vmaCreateAllocator(&vmaCreateInfo, &m_pVMA);
+
+    m_mainDeletionQueue.PushDeletor([&]() {
+        vmaDestroyAllocator(m_pVMA);
+    });
+
     return true;
 }
 
 
 bool VulkanEngine::InitSwapChain() noexcept
 {
-    return CreateSwapChain(m_windowExtent.width, m_windowExtent.height);
+    if (!CreateSwapChain(m_windowExtent.width, m_windowExtent.height)) {
+        return false;
+    }
+
+    const VkExtent3D rndImageExtent = { m_windowExtent.width, m_windowExtent.height, 1 };
+
+	m_rndImage.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+	m_rndImage.extent = rndImageExtent;
+
+	VkImageUsageFlags rndImageUsages{};
+	rndImageUsages |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	rndImageUsages |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	rndImageUsages |= VK_IMAGE_USAGE_STORAGE_BIT;
+	rndImageUsages |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+	const VkImageCreateInfo rndImageCreateInfo = vkinit::ImageCreateInfo(m_rndImage.extent, m_rndImage.format, rndImageUsages);
+
+	VmaAllocationCreateInfo rndImageAllocInfo = {};
+	rndImageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	rndImageAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	vmaCreateImage(m_pVMA, &rndImageCreateInfo, &rndImageAllocInfo, &m_rndImage.pImage, &m_rndImage.pAllocation, nullptr);
+
+	const VkImageViewCreateInfo rndImageViewInfo = vkinit::ImageViewCreateInfo(m_rndImage.pImage, m_rndImage.format, VK_IMAGE_ASPECT_COLOR_BIT);
+
+	ENG_VK_CHECK(vkCreateImageView(m_pVkDevice, &rndImageViewInfo, nullptr, &m_rndImage.pImageView));
+
+    m_mainDeletionQueue.PushDeletor([&]() {
+		vkDestroyImageView(m_pVkDevice, m_rndImage.pImageView, nullptr);
+		vmaDestroyImage(m_pVMA, m_rndImage.pImage, m_rndImage.pAllocation);
+	});
+
+    return true;
 }
 
 
@@ -290,10 +351,10 @@ bool VulkanEngine::CreateSwapChain(uint32_t width, uint32_t height) noexcept
 {
     vkb::SwapchainBuilder vkbSwapChainBuilder(m_pVkPhysDevice, m_pVkDevice, m_pVkSurface);
 
-	m_vkSwapChainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	m_swapChainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
 
     VkSurfaceFormatKHR surfaceFormat = {};
-    surfaceFormat.format = m_vkSwapChainImageFormat;
+    surfaceFormat.format = m_swapChainImageFormat;
     surfaceFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 
 	vkb::Result<vkb::Swapchain> vkbSwapChainBuildResult = vkbSwapChainBuilder
@@ -310,7 +371,7 @@ bool VulkanEngine::CreateSwapChain(uint32_t width, uint32_t height) noexcept
 
     vkb::Swapchain& vkbSwapChain = vkbSwapChainBuildResult.value();
 
-	m_vkSwapChainExtent = vkbSwapChain.extent;
+	m_swapChainExtent = vkbSwapChain.extent;
     
 	m_pVkSwapChain = vkbSwapChain.swapchain;
 	m_vkSwapChainImages = vkbSwapChain.get_images().value();

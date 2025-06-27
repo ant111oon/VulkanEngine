@@ -1,9 +1,37 @@
 #pragma once
 
-#include "vk.h"
+#include "vk_types.h"
 
 #include <array>
+#include <deque>
+
+#include <functional>
+
 #include <cstdint>
+
+
+class DeletionQueue final
+{
+public:
+    DeletionQueue() = default;
+
+	void PushDeletor(std::function<void()>&& deletor) noexcept
+    {
+		m_deletors.emplace_back(std::forward<std::function<void()>>(deletor));
+	}
+
+	void Flush() noexcept
+    {
+		for (auto it = m_deletors.rbegin(); it != m_deletors.rend(); ++it) {
+			(*it)();
+		}
+
+		m_deletors.clear();
+	}
+
+private:
+    std::deque<std::function<void()>> m_deletors;
+};
 
 
 class VulkanEngine final
@@ -17,6 +45,8 @@ private:
         VkSemaphore pVkSwapChainSemaphore;
         VkSemaphore pVkRenderSemaphore;
 	    VkFence pVkRenderFence;
+
+        DeletionQueue deletionQueue;
     };
 
     static constexpr size_t FRAMES_DATA_INST_COUNT = UINTMAX_C(2);
@@ -41,6 +71,7 @@ private:
     VulkanEngine& operator=(VulkanEngine&& other) = delete;
 
     void Render() noexcept;
+    void RenderBackground(VkCommandBuffer pCmdBuf) noexcept;
 
     bool InitVulkan() noexcept;
 
@@ -64,8 +95,8 @@ private:
     VkSurfaceKHR m_pVkSurface = VK_NULL_HANDLE;
     
     VkSwapchainKHR m_pVkSwapChain = VK_NULL_HANDLE;
-    VkFormat m_vkSwapChainImageFormat;
-    VkExtent2D m_vkSwapChainExtent;
+    VkFormat m_swapChainImageFormat;
+    VkExtent2D m_swapChainExtent;
 
     std::vector<VkImage> m_vkSwapChainImages;
     std::vector<VkImageView> m_vkSwapChainImageViews;
@@ -74,6 +105,12 @@ private:
 
     VkQueue m_pVkGraphicsQueue = VK_NULL_HANDLE;
     uint32_t m_graphicsQueueFamily;
+
+    ImageHandle m_rndImage;
+    VkExtent2D m_rndExtent;
+
+    VmaAllocator m_pVMA;
+    DeletionQueue m_mainDeletionQueue;
 
 	uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;

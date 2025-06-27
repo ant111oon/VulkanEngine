@@ -53,7 +53,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/zeux/volk.git
     GIT_TAG        1.4.304
 )
-FetchContent_MakeAvailable(SDL2)
+FetchContent_MakeAvailable(volk)
 
 
 FetchContent_Declare(
