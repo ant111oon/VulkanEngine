@@ -11,8 +11,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 
 find_package(Vulkan REQUIRED)
-find_program(GLSL_VALIDATOR glslangValidator HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
-
 
 include(FetchContent)
 
@@ -108,37 +106,13 @@ add_library(vma INTERFACE)
 target_include_directories(vma INTERFACE ${vma_SOURCE_DIR}/include)
 
 
-file(GLOB_RECURSE SHADER_SOURCE_FILES
-    "${PROJECT_SOURCE_DIR}/shaders/*.fs"
-    "${PROJECT_SOURCE_DIR}/shaders/*.vs"
-    "${PROJECT_SOURCE_DIR}/shaders/*.cs"
-)
-
-foreach(SHADER_SOURCE_FILE ${GLSL_SOURCE_FILES})
-    message(STATUS "BUILDING SHADER")
-    get_filename_component(FILE_NAME ${SHADER_SOURCE_FILE} NAME)
-    
-    set(SPIRV "${PROJECT_SOURCE_DIR}/shaders/${FILE_NAME}.spv")
-    
-    message(STATUS ${GLSL})
-    
-    add_custom_command(
-        OUTPUT ${SPIRV}
-        COMMAND ${GLSL_VALIDATOR} -V ${SHADER_SOURCE_FILE} -o ${SPIRV}
-        DEPENDS ${SHADER_SOURCE_FILE})
-    list(APPEND SPIRV_BINARY_FILES ${SPIRV})
-endforeach(SHADER_SOURCE_FILE)
-
-add_custom_target(shaders DEPENDS ${SPIRV_BINARY_FILES})
-
-
 file(GLOB_RECURSE CPP_SOURCE_FILES
     ${PROJECT_SOURCE_DIR}/src/*.h
     ${PROJECT_SOURCE_DIR}/src/*.hpp
     ${PROJECT_SOURCE_DIR}/src/*.cpp
 )
 
-add_executable (engine ${CPP_SOURCE_FILES})
+add_executable(engine ${CPP_SOURCE_FILES})
 
 target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE)
 
@@ -159,3 +133,37 @@ add_custom_command(TARGET engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> $<TARGET_FILE_DIR:engine>
     COMMAND_EXPAND_LISTS
 )
+
+if (${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "AMD64")
+    set(ENG_GLSL_VALIDATOR $ENV{VULKAN_SDK}/Bin/glslangValidator.exe)
+else()
+    set(ENG_GLSL_VALIDATOR $ENV{VULKAN_SDK}/Bin32/glslangValidator.exe)
+endif()
+
+set(ENG_SHADERS_DIR ${PROJECT_SOURCE_DIR}/shaders)
+set(ENG_SHADERS_SRC_DIR ${ENG_SHADERS_DIR}/src)
+set(ENG_SHADERS_BIN_DIR ${ENG_SHADERS_DIR}/bin)
+
+file(GLOB_RECURSE SHADER_SRC_FILES
+    ${ENG_SHADERS_SRC_DIR}/*.frag  
+    ${ENG_SHADERS_SRC_DIR}/*.vert
+    ${ENG_SHADERS_SRC_DIR}/*.comp
+)
+
+foreach(SHADER_SRC_FILE ${SHADER_SRC_FILES})
+    get_filename_component(FILE_NAME ${SHADER_SRC_FILE} NAME)
+    
+    set(SHADER_SPIRV ${ENG_SHADERS_BIN_DIR}/${FILE_NAME}.spv)
+    
+    message(STATUS "GLSL file found: ${SHADER_SRC_FILE}")
+    message(STATUS "Will output to: ${SHADER_SPIRV}")
+    
+    add_custom_command(
+        OUTPUT ${SHADER_SPIRV}
+        COMMAND ${ENG_GLSL_VALIDATOR} -V ${SHADER_SRC_FILE} -o ${SHADER_SPIRV}
+        DEPENDS ${SHADER_SRC_FILE})
+    list(APPEND SPIRV_BINARY_FILES ${SHADER_SPIRV})
+endforeach(SHADER_SRC_FILE)
+
+add_custom_target(shaders DEPENDS ${SPIRV_BINARY_FILES})
+add_dependencies(engine shaders)

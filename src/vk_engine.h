@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vk_types.h"
+#include "vk_descriptors.h"
 
 #include <array>
 #include <deque>
@@ -82,6 +83,11 @@ private:
     bool InitCommands() noexcept;
     bool InitSyncStructures() noexcept;
 
+    bool InitDescriptors() noexcept;
+
+    bool InitPipelines() noexcept;
+    bool InitBackgroundPipelines() noexcept;
+
     FrameData& GetCurrentFrameData() noexcept { return m_framesData[m_frameNumber % FRAMES_DATA_INST_COUNT]; }
 
 private:
@@ -109,7 +115,15 @@ private:
     ImageHandle m_rndImage;
     VkExtent2D m_rndExtent;
 
-    VmaAllocator m_pVMA;
+    DescriptorAllocator m_globalDescriptorAllocator;
+
+	VkDescriptorSet m_pRndImageDescriptors = VK_NULL_HANDLE;
+	VkDescriptorSetLayout m_pRndImageDescriptorLayout = VK_NULL_HANDLE;
+
+    VkPipeline m_pGradientPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_pGradientPipelineLayout = VK_NULL_HANDLE;
+
+    VmaAllocator m_pVMA = VK_NULL_HANDLE;
     DeletionQueue m_mainDeletionQueue;
 
 	uint64_t m_frameNumber = 0;

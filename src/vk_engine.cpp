@@ -1,8 +1,11 @@
+#include "pch.h"
+
 #include "core.h"
 
 #include "vk_engine.h"
 
 #include "vk_initializers.h"
+#include "vk_pipelines.h"
 #include "vk_images.h"
 
 #include <SDL2/SDL.h>
@@ -14,18 +17,25 @@
 #include <vk_mem_alloc.h>
 
 
-#define ENG_CHECK_SDL_ERROR(COND, ...)                      \
-    if (!(COND)) {                                          \
-        ENG_ASSERT_FAIL("[SDL ERROR]: {}", SDL_GetError()); \
-        return __VA_ARGS__;                                 \
-    }
-
-
 #ifdef ENG_DEBUG
     constexpr bool cfg_UseValidationLayers = true;
 #else
     constexpr bool cfg_UseValidationLayers = false;
 #endif
+
+static const std::filesystem::path ENG_GRADIENT_COMPUTE_SHADER_PATH = "../shaders/bin/gradient.comp.spv";
+
+
+#define ENG_RND_BACKGROUND_VERSION_CLEAR 0
+#define ENG_RND_BACKGROUND_VERSION_COMPUTE_GRADIENT 1
+#define ENG_RND_BACKGROUND_VERSION ENG_RND_BACKGROUND_VERSION_COMPUTE_GRADIENT
+
+
+#define ENG_CHECK_SDL_ERROR(COND, ...)                      \
+    if (!(COND)) {                                          \
+        ENG_ASSERT_FAIL("[SDL ERROR]: {}", SDL_GetError()); \
+        return __VA_ARGS__;                                 \
+    }
 
 
 VulkanEngine& VulkanEngine::GetInstance() noexcept
@@ -66,6 +76,16 @@ void VulkanEngine::Init() noexcept
 
     if (!InitSyncStructures()) {
         ENG_ASSERT_FAIL("Failed to init sync structures");
+        return;
+    }
+
+    if (!InitDescriptors()) {
+        ENG_ASSERT_FAIL("Failed to init descriptors");
+        return;
+    }
+
+    if (!InitPipelines()) {
+        ENG_ASSERT_FAIL("Failed to init pipelines");
         return;
     }
 
@@ -159,7 +179,6 @@ void VulkanEngine::Render() noexcept
     constexpr uint64_t waitRenderFenceTimeoutNs = 1'000'000'000;
 
     ENG_VK_CHECK(vkWaitForFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence, true, waitRenderFenceTimeoutNs));
-    ENG_VK_CHECK(vkResetFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence));
 	
     currFrameData.deletionQueue.Flush();
 
@@ -168,10 +187,14 @@ void VulkanEngine::Render() noexcept
     uint32_t swapChainImageIndex;
     vkAcquireNextImageKHR(m_pVkDevice, m_pVkSwapChain, acquireNextSwapChainImageTimeoutNs,
         currFrameData.pVkSwapChainSemaphore, VK_NULL_HANDLE, &swapChainImageIndex);
-
+        
     VkCommandBuffer pCmdBuf = currFrameData.pVkCmdBuffer;
-
+        
+    ENG_VK_CHECK(vkResetFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence));
     ENG_VK_CHECK(vkResetCommandBuffer(pCmdBuf, 0));
+
+    m_rndExtent.width = m_rndImage.extent.width;
+	m_rndExtent.height = m_rndImage.extent.height;
 
     const VkCommandBufferBeginInfo cmdBuffBeginInfo = vkinit::CmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     ENG_VK_CHECK(vkBeginCommandBuffer(pCmdBuf, &cmdBuffBeginInfo));
@@ -181,8 +204,8 @@ void VulkanEngine::Render() noexcept
     RenderBackground(pCmdBuf);
 
     vkutil::TransitImage(pCmdBuf, m_rndImage.pImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    
     vkutil::TransitImage(pCmdBuf, m_vkSwapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    
     vkutil::CopyImage(pCmdBuf, m_rndImage.pImage, m_rndExtent, m_vkSwapChainImages[swapChainImageIndex], m_swapChainExtent);
 
     vkutil::TransitImage(pCmdBuf, m_vkSwapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -216,6 +239,7 @@ void VulkanEngine::Render() noexcept
 
 void VulkanEngine::RenderBackground(VkCommandBuffer pCmdBuf) noexcept
 {
+#if ENG_RND_BACKGROUND_VERSION == ENG_RND_BACKGROUND_VERSION_CLEAR
     VkClearColorValue clearValue = {};
     clearValue.float32[0] = std::abs(std::cos(m_frameNumber / 30.f));
     clearValue.float32[1] = 0.f;
@@ -225,6 +249,15 @@ void VulkanEngine::RenderBackground(VkCommandBuffer pCmdBuf) noexcept
     VkImageSubresourceRange clearRange = vkinit::ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
     vkCmdClearColorImage(pCmdBuf, m_rndImage.pImage, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+#elif ENG_RND_BACKGROUND_VERSION == ENG_RND_BACKGROUND_VERSION_COMPUTE_GRADIENT
+    vkCmdBindPipeline(pCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_pGradientPipeline);
+
+    vkCmdBindDescriptorSets(pCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_pGradientPipelineLayout, 0, 1, &m_pRndImageDescriptors, 0, nullptr);
+
+    vkCmdDispatch(pCmdBuf, std::ceil(m_rndExtent.width / 16.f), std::ceil(m_rndExtent.height / 16.f), 1);
+#else
+    #error Invalid RenderBackground version
+#endif
 }
 
 
@@ -418,6 +451,101 @@ bool VulkanEngine::InitSyncStructures() noexcept
 		ENG_VK_CHECK(vkCreateSemaphore(m_pVkDevice, &semaphoreCreateInfo, nullptr, &m_framesData[i].pVkSwapChainSemaphore));
 		ENG_VK_CHECK(vkCreateSemaphore(m_pVkDevice, &semaphoreCreateInfo, nullptr, &m_framesData[i].pVkRenderSemaphore));
 	}
+
+    return true;
+}
+
+
+bool VulkanEngine::InitDescriptors() noexcept
+{
+    std::array<DescriptorAllocator::PoolSizeRatio, 1> sizes =
+	{
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1.f }
+	};
+
+	m_globalDescriptorAllocator.InitPool(m_pVkDevice, 10, sizes);
+
+    static constexpr uint32_t IMAGE_BINDING_IDX = 0;
+    static constexpr VkDescriptorType IMAGE_DESCR_TYPE = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+
+	DescriptorLayoutBuilder builder;
+	builder.AddBinding(IMAGE_BINDING_IDX, IMAGE_DESCR_TYPE);
+	m_pRndImageDescriptorLayout = builder.Build(m_pVkDevice, VK_SHADER_STAGE_COMPUTE_BIT);
+
+    m_pRndImageDescriptors = m_globalDescriptorAllocator.Allocate(m_pVkDevice, m_pRndImageDescriptorLayout);	
+
+	VkDescriptorImageInfo imgInfo{};
+	imgInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	imgInfo.imageView = m_rndImage.pImageView;
+	
+	VkWriteDescriptorSet rndImageWrite = {};
+	
+    rndImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	rndImageWrite.pNext = nullptr;
+	
+	rndImageWrite.dstBinding = IMAGE_BINDING_IDX;
+	rndImageWrite.dstSet = m_pRndImageDescriptors;
+	rndImageWrite.descriptorCount = 1;
+	rndImageWrite.descriptorType = IMAGE_DESCR_TYPE;
+	rndImageWrite.pImageInfo = &imgInfo;
+
+	vkUpdateDescriptorSets(m_pVkDevice, 1, &rndImageWrite, 0, nullptr);
+
+	m_mainDeletionQueue.PushDeletor([&]() {
+		m_globalDescriptorAllocator.DestroyPool(m_pVkDevice);
+
+		vkDestroyDescriptorSetLayout(m_pVkDevice, m_pRndImageDescriptorLayout, nullptr);
+	});
+
+    return true;
+}
+
+
+bool VulkanEngine::InitPipelines() noexcept
+{
+    return InitBackgroundPipelines();
+}
+
+
+bool VulkanEngine::InitBackgroundPipelines() noexcept
+{
+    VkPipelineLayoutCreateInfo layoutCreateInfo = {};
+
+    layoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutCreateInfo.pNext = VK_NULL_HANDLE;
+
+    layoutCreateInfo.pSetLayouts = &m_pRndImageDescriptorLayout;
+    layoutCreateInfo.setLayoutCount = 1;
+
+    ENG_VK_CHECK(vkCreatePipelineLayout(m_pVkDevice, &layoutCreateInfo, VK_NULL_HANDLE, &m_pGradientPipelineLayout));
+
+    VkShaderModule pShaderModule = VK_NULL_HANDLE;
+    if (!vkutil::LoadShaderModule(ENG_GRADIENT_COMPUTE_SHADER_PATH, m_pVkDevice, pShaderModule)) {
+        ENG_ASSERT_FAIL("Failed to load shader module: {}", ENG_GRADIENT_COMPUTE_SHADER_PATH.string().c_str());
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo stageCreateInfo = {};
+    stageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stageCreateInfo.pNext = VK_NULL_HANDLE;
+    stageCreateInfo.module = pShaderModule;
+    stageCreateInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    stageCreateInfo.pName = "main";
+
+    VkComputePipelineCreateInfo computePipelineCreateInfo = {};
+    computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    computePipelineCreateInfo.pNext = VK_NULL_HANDLE;
+    computePipelineCreateInfo.layout = m_pGradientPipelineLayout;
+    computePipelineCreateInfo.stage = stageCreateInfo;
+
+    ENG_VK_CHECK(vkCreateComputePipelines(m_pVkDevice, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &m_pGradientPipeline));
+
+    vkDestroyShaderModule(m_pVkDevice, pShaderModule, nullptr);
+
+	m_mainDeletionQueue.PushDeletor([&]() {
+		vkDestroyPipelineLayout(m_pVkDevice, m_pGradientPipelineLayout, nullptr);
+		vkDestroyPipeline(m_pVkDevice, m_pGradientPipeline, nullptr);
+	});
 
     return true;
 }
