@@ -172,4 +172,39 @@ namespace vkinit
 
         return info;
     }
+
+
+    VkRenderingAttachmentInfo RenderingAttachmentInfo(VkImageView pImageView, const std::optional<VkClearValue>& clearValue, VkImageLayout layout) noexcept
+    {
+        VkRenderingAttachmentInfo info = {};
+
+        info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        info.pNext = nullptr;
+        info.imageView = pImageView;
+        info.imageLayout = layout;
+        info.clearValue = clearValue.value_or({0});
+        info.loadOp = clearValue.has_value() ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+        info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        return info;
+    }
+    
+    
+    VkRenderingInfo RenderingInfo(const VkExtent2D& extent, const VkRenderingAttachmentInfo* pColorAttachment, const VkRenderingAttachmentInfo* pDepthAttachment) noexcept
+    {
+        VkRenderingInfo info = {};
+
+        info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        info.pNext = nullptr;
+
+        info.pColorAttachments = pColorAttachment;
+        info.colorAttachmentCount = 1;
+
+        info.pDepthAttachment = pDepthAttachment;
+
+        info.layerCount = 1;
+        info.renderArea = VkRect2D { VkOffset2D { 0, 0 }, extent };
+
+        return info;
+    }
 }

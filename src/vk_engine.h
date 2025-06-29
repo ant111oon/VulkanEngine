@@ -73,6 +73,7 @@ private:
 
     void Render() noexcept;
     void RenderBackground(VkCommandBuffer pCmdBuf) noexcept;
+    void RenderImGui(VkCommandBuffer pCmdBuf, VkImageView pTargetImageView) noexcept;
 
     bool InitVulkan() noexcept;
 
@@ -87,6 +88,9 @@ private:
 
     bool InitPipelines() noexcept;
     bool InitBackgroundPipelines() noexcept;
+
+    bool InitImGui() noexcept;
+    void ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&& function) noexcept;
 
     FrameData& GetCurrentFrameData() noexcept { return m_framesData[m_frameNumber % FRAMES_DATA_INST_COUNT]; }
 
@@ -122,6 +126,11 @@ private:
 
     VkPipeline m_pGradientPipeline = VK_NULL_HANDLE;
     VkPipelineLayout m_pGradientPipelineLayout = VK_NULL_HANDLE;
+
+    // immediate submit structures
+    VkFence m_pImmFence;
+    VkCommandBuffer m_pImmCommandBuffer;
+    VkCommandPool m_pImmCommandPool;
 
     VmaAllocator m_pVMA = VK_NULL_HANDLE;
     DeletionQueue m_mainDeletionQueue;
