@@ -52,6 +52,20 @@ private:
 
     static constexpr size_t FRAMES_DATA_INST_COUNT = UINTMAX_C(2);
 
+    struct ComputePushConstants
+    {
+        glm::vec4 data[4];
+    };
+
+    struct ComputeEffect {
+        std::string_view name;
+
+        VkPipeline pipeline;
+        VkPipelineLayout layout;
+
+        ComputePushConstants data;
+    };
+
 public:
     static VulkanEngine& GetInstance() noexcept;
 
@@ -96,7 +110,7 @@ private:
 
 private:
     struct SDL_Window* m_pWindow = nullptr;
-	VkExtent2D m_windowExtent = { 900 , 640 };
+	VkExtent2D m_windowExtent = { 1000 , 720 };
 
     VkInstance m_pVkInstance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT m_pVkDgbMessenger = VK_NULL_HANDLE;
@@ -124,7 +138,6 @@ private:
 	VkDescriptorSet m_pRndImageDescriptors = VK_NULL_HANDLE;
 	VkDescriptorSetLayout m_pRndImageDescriptorLayout = VK_NULL_HANDLE;
 
-    VkPipeline m_pGradientPipeline = VK_NULL_HANDLE;
     VkPipelineLayout m_pGradientPipelineLayout = VK_NULL_HANDLE;
 
     // immediate submit structures
@@ -134,6 +147,9 @@ private:
 
     VmaAllocator m_pVMA = VK_NULL_HANDLE;
     DeletionQueue m_mainDeletionQueue;
+
+    std::vector<ComputeEffect> m_backgroundEffects;
+    int32_t m_currBackgroundEffect = 0;
 
 	uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;

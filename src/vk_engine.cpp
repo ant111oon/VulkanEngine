@@ -28,6 +28,7 @@
 #endif
 
 static const std::filesystem::path ENG_GRADIENT_COMPUTE_SHADER_PATH = "../shaders/bin/gradient.comp.spv";
+static const std::filesystem::path ENG_SKY_SHADER_PATH = "../shaders/bin/sky.comp.spv";
 
 
 #define ENG_RND_BACKGROUND_VERSION_CLEAR 0
@@ -174,7 +175,24 @@ void VulkanEngine::Run() noexcept
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::ShowDemoWindow();
+        if (ImGui::Begin("Background")) {
+			
+			ComputeEffect& selected = m_backgroundEffects[m_currBackgroundEffect];
+		
+			ImGui::Text("Selected effect: %s", selected.name.data());
+		
+			ImGui::SliderInt("Effect Index", &m_currBackgroundEffect, 0, m_backgroundEffects.size() - 1);
+		
+            for (size_t i = 0; i < std::size(selected.data.data); ++i) {
+                glm::vec4& data = selected.data.data[i];
+                
+                char label[64] = {};
+                sprintf_s(label, "data %u", i);
+
+                ImGui::InputFloat4(label,(float*)&data.x);
+            }
+		}
+		ImGui::End();
 
         ImGui::Render();
 
@@ -272,9 +290,13 @@ void VulkanEngine::RenderBackground(VkCommandBuffer pCmdBuf) noexcept
 
     vkCmdClearColorImage(pCmdBuf, m_rndImage.pImage, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 #elif ENG_RND_BACKGROUND_VERSION == ENG_RND_BACKGROUND_VERSION_COMPUTE_GRADIENT
-    vkCmdBindPipeline(pCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_pGradientPipeline);
+    ComputeEffect& effect = m_backgroundEffects[m_currBackgroundEffect];
+
+    vkCmdBindPipeline(pCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
 
     vkCmdBindDescriptorSets(pCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_pGradientPipelineLayout, 0, 1, &m_pRndImageDescriptors, 0, nullptr);
+
+    vkCmdPushConstants(pCmdBuf, m_pGradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &effect.data);
 
     vkCmdDispatch(pCmdBuf, std::ceil(m_rndExtent.width / 16.f), std::ceil(m_rndExtent.height / 16.f), 1);
 #else
@@ -565,18 +587,32 @@ bool VulkanEngine::InitBackgroundPipelines() noexcept
     layoutCreateInfo.pSetLayouts = &m_pRndImageDescriptorLayout;
     layoutCreateInfo.setLayoutCount = 1;
 
+    VkPushConstantRange pushConstRange = {};
+    pushConstRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstRange.offset = 0;
+    pushConstRange.size = sizeof(ComputePushConstants);
+
+    layoutCreateInfo.pPushConstantRanges = &pushConstRange;
+    layoutCreateInfo.pushConstantRangeCount = 1;
+
     ENG_VK_CHECK(vkCreatePipelineLayout(m_pVkDevice, &layoutCreateInfo, VK_NULL_HANDLE, &m_pGradientPipelineLayout));
 
-    VkShaderModule pShaderModule = VK_NULL_HANDLE;
-    if (!vkutil::LoadShaderModule(ENG_GRADIENT_COMPUTE_SHADER_PATH, m_pVkDevice, pShaderModule)) {
+    VkShaderModule pGradientShaderModule = VK_NULL_HANDLE;
+    if (!vkutil::LoadShaderModule(ENG_GRADIENT_COMPUTE_SHADER_PATH, m_pVkDevice, pGradientShaderModule)) {
         ENG_ASSERT_FAIL("Failed to load shader module: {}", ENG_GRADIENT_COMPUTE_SHADER_PATH.string().c_str());
+        return false;
+    }
+
+    VkShaderModule pSkyShaderModule = VK_NULL_HANDLE;
+    if (!vkutil::LoadShaderModule(ENG_SKY_SHADER_PATH, m_pVkDevice, pSkyShaderModule)) {
+        ENG_ASSERT_FAIL("Failed to load shader module: {}", ENG_SKY_SHADER_PATH.string().c_str());
         return false;
     }
 
     VkPipelineShaderStageCreateInfo stageCreateInfo = {};
     stageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stageCreateInfo.pNext = VK_NULL_HANDLE;
-    stageCreateInfo.module = pShaderModule;
+    stageCreateInfo.module = pGradientShaderModule;
     stageCreateInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     stageCreateInfo.pName = "main";
 
@@ -586,13 +622,36 @@ bool VulkanEngine::InitBackgroundPipelines() noexcept
     computePipelineCreateInfo.layout = m_pGradientPipelineLayout;
     computePipelineCreateInfo.stage = stageCreateInfo;
 
-    ENG_VK_CHECK(vkCreateComputePipelines(m_pVkDevice, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &m_pGradientPipeline));
+    ComputeEffect gradient = {};
+    gradient.name = "gradient";
+    gradient.layout = m_pGradientPipelineLayout;
+    gradient.data.data[0] = glm::vec4(1.f, 0.f, 0.f, 1.f);
+    gradient.data.data[1] = glm::vec4(0.f, 0.f, 1.f, 1.f);
 
-    vkDestroyShaderModule(m_pVkDevice, pShaderModule, nullptr);
+    ENG_VK_CHECK(vkCreateComputePipelines(m_pVkDevice, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &gradient.pipeline));
+    
+    
+    computePipelineCreateInfo.stage.module = pSkyShaderModule;
+    
+    ComputeEffect sky = {};
+    sky.name = "sky";
+    sky.layout = m_pGradientPipelineLayout;
+    sky.data.data[0] = glm::vec4(0.1f, 0.2f, 0.4f, 0.97f);
+
+    ENG_VK_CHECK(vkCreateComputePipelines(m_pVkDevice, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &sky.pipeline));
+
+    m_backgroundEffects.emplace_back(gradient);
+    m_backgroundEffects.emplace_back(sky);
+
+    vkDestroyShaderModule(m_pVkDevice, pGradientShaderModule, nullptr);
+    vkDestroyShaderModule(m_pVkDevice, pSkyShaderModule, nullptr);
 
 	m_mainDeletionQueue.PushDeletor([&]() {
 		vkDestroyPipelineLayout(m_pVkDevice, m_pGradientPipelineLayout, nullptr);
-		vkDestroyPipeline(m_pVkDevice, m_pGradientPipeline, nullptr);
+		
+        for (ComputeEffect& effect : m_backgroundEffects) {
+            vkDestroyPipeline(m_pVkDevice, effect.pipeline, nullptr);
+        }
 	});
 
     return true;

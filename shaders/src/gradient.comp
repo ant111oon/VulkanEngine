@@ -4,18 +4,23 @@ layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout (rgba16f, set = 0, binding = 0) uniform image2D IMAGE;
 
 
+layout (push_constant) uniform constants
+{
+    vec4 data[4];
+} PUSH_CONSTANTS;
+
+
 void main()
 {
-    ivec2 texCoord = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 imgSize = imageSize(IMAGE);
+    const ivec2 texCoord = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 imgSize = imageSize(IMAGE);
+
+    const vec4 bottomColor = PUSH_CONSTANTS.data[0];
+    const vec4 topColor = PUSH_CONSTANTS.data[1];
 
     if (all(lessThan(texCoord, imgSize))) {
-        vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
-
-        if(all(notEqual(ivec2(gl_LocalInvocationID.xy), ivec2(0, 0)))) {
-            color.xy = vec2(texCoord) / vec2(imgSize);
-        }
+        const float t = float(texCoord.y) / (imgSize.y); 
     
-        imageStore(IMAGE, texCoord, color);
+        imageStore(IMAGE, texCoord, mix(bottomColor, topColor, t));
     }
 }
