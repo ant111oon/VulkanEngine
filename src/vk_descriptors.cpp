@@ -27,13 +27,13 @@ VkDescriptorSetLayout DescriptorLayoutBuilder::Build(VkDevice pDevice, VkShaderS
         binding.stageFlags |= shaderStages;
     }
 
-    VkDescriptorSetLayoutCreateInfo info = {};
-    
-    info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    info.pNext = pNext;
-    info.pBindings = m_bindings.data();
-    info.bindingCount = static_cast<uint32_t>(m_bindings.size());
-    info.flags = flags;
+    VkDescriptorSetLayoutCreateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = pNext,
+        .flags = flags,
+        .bindingCount = static_cast<uint32_t>(m_bindings.size()),
+        .pBindings = m_bindings.data()
+    };
 
     VkDescriptorSetLayout layout = VK_NULL_HANDLE;
     ENG_VK_CHECK(vkCreateDescriptorSetLayout(pDevice, &info, nullptr, &layout));
@@ -56,12 +56,12 @@ void DescriptorAllocator::InitPool(VkDevice pDevice, uint32_t maxSets, std::span
         poolSizes.emplace_back(poolSize);
     }
 
-	VkDescriptorPoolCreateInfo poolInfo = {};
-    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.flags = 0;
-	poolInfo.maxSets = maxSets;
-	poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-	poolInfo.pPoolSizes = poolSizes.data();
+	VkDescriptorPoolCreateInfo poolInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .maxSets = maxSets,
+        .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+        .pPoolSizes = poolSizes.data()
+    };
 
 	vkCreateDescriptorPool(pDevice, &poolInfo, VK_NULL_HANDLE, &m_pPool);
 }
@@ -81,12 +81,12 @@ void DescriptorAllocator::DestroyPool(VkDevice pDevice) noexcept
 
 VkDescriptorSet DescriptorAllocator::Allocate(VkDevice pDevice, VkDescriptorSetLayout pLayout)
 {
-    VkDescriptorSetAllocateInfo info = {};
-
-    info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    info.descriptorPool = m_pPool;
-    info.pSetLayouts = &pLayout;
-    info.descriptorSetCount = 1;
+    VkDescriptorSetAllocateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = m_pPool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &pLayout
+    };
 
     VkDescriptorSet pSet = VK_NULL_HANDLE;
     ENG_VK_CHECK(vkAllocateDescriptorSets(pDevice, &info, &pSet));

@@ -87,6 +87,7 @@ private:
 
     void Render() noexcept;
     void RenderBackground(VkCommandBuffer pCmdBuf) noexcept;
+    void RenderGeometry(VkCommandBuffer pCmdBuf) noexcept;
     void RenderImGui(VkCommandBuffer pCmdBuf, VkImageView pTargetImageView) noexcept;
 
     bool InitVulkan() noexcept;
@@ -102,6 +103,7 @@ private:
 
     bool InitPipelines() noexcept;
     bool InitBackgroundPipelines() noexcept;
+    bool InitTrianglePipeline() noexcept;
 
     bool InitImGui() noexcept;
     void ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&& function) noexcept;
@@ -139,6 +141,9 @@ private:
 	VkDescriptorSetLayout m_pRndImageDescriptorLayout = VK_NULL_HANDLE;
 
     VkPipelineLayout m_pGradientPipelineLayout = VK_NULL_HANDLE;
+
+    VkPipelineLayout m_pTrianglePipelineLayout = VK_NULL_HANDLE;
+    VkPipeline m_pTrianglePipeline = VK_NULL_HANDLE;
 
     // immediate submit structures
     VkFence m_pImmFence;

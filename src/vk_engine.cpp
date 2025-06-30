@@ -27,8 +27,10 @@
     constexpr bool cfg_UseValidationLayers = false;
 #endif
 
-static const std::filesystem::path ENG_GRADIENT_COMPUTE_SHADER_PATH = "../shaders/bin/gradient.comp.spv";
-static const std::filesystem::path ENG_SKY_SHADER_PATH = "../shaders/bin/sky.comp.spv";
+static const std::filesystem::path ENG_GRADIENT_CS_PATH = "../shaders/bin/gradient.comp.spv";
+static const std::filesystem::path ENG_SKY_CS_PATH = "../shaders/bin/sky.comp.spv";
+static const std::filesystem::path ENG_COLORED_TRIANGLE_VS_PATH = "../shaders/bin/colored_triangle.vert.spv";
+static const std::filesystem::path ENG_COLORED_TRIANGLE_PS_PATH = "../shaders/bin/colored_triangle.frag.spv";
 
 
 #define ENG_RND_BACKGROUND_VERSION_CLEAR 0
@@ -238,7 +240,11 @@ void VulkanEngine::Render() noexcept
 
     RenderBackground(pCmdBuf);
 
-    vkutil::TransitImage(pCmdBuf, m_rndImage.pImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vkutil::TransitImage(pCmdBuf, m_rndImage.pImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    RenderGeometry(pCmdBuf);
+
+    vkutil::TransitImage(pCmdBuf, m_rndImage.pImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     
     vkutil::TransitImage(pCmdBuf, m_vkSwapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     
@@ -261,14 +267,14 @@ void VulkanEngine::Render() noexcept
 
 	ENG_VK_CHECK(vkQueueSubmit2(m_pVkGraphicsQueue, 1, &submitInfo2, currFrameData.pVkRenderFence));
 
-    VkPresentInfoKHR presentInfo = {};
-
-	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-	presentInfo.pSwapchains = &m_pVkSwapChain;
-	presentInfo.swapchainCount = 1;
-	presentInfo.pWaitSemaphores = &currFrameData.pVkRenderSemaphore;
-	presentInfo.waitSemaphoreCount = 1;
-	presentInfo.pImageIndices = &swapChainImageIndex;
+    VkPresentInfoKHR presentInfo = {
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &currFrameData.pVkRenderSemaphore,
+        .swapchainCount = 1,
+        .pSwapchains = &m_pVkSwapChain,
+        .pImageIndices = &swapChainImageIndex,
+    };
 
 	ENG_VK_CHECK(vkQueuePresentKHR(m_pVkGraphicsQueue, &presentInfo));
 
@@ -301,6 +307,40 @@ void VulkanEngine::RenderBackground(VkCommandBuffer pCmdBuf) noexcept
 #else
     #error Invalid RenderBackground version
 #endif
+}
+
+
+void VulkanEngine::RenderGeometry(VkCommandBuffer pCmdBuf) noexcept
+{
+    VkRenderingAttachmentInfo colorAttachment = vkinit::RenderingAttachmentInfo(m_rndImage.pImageView, std::nullopt, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+	VkRenderingInfo renderInfo = vkinit::RenderingInfo(m_rndExtent, &colorAttachment, nullptr);
+	vkCmdBeginRendering(pCmdBuf, &renderInfo);
+
+	vkCmdBindPipeline(pCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pTrianglePipeline);
+
+	//set dynamic viewport and scissor
+	VkViewport viewport = {};
+	viewport.x = 0;
+	viewport.y = 0;
+	viewport.width = m_rndExtent.width;
+	viewport.height = m_rndExtent.height;
+	viewport.minDepth = 0.f;
+	viewport.maxDepth = 1.f;
+
+	vkCmdSetViewport(pCmdBuf, 0, 1, &viewport);
+
+	VkRect2D scissor = {};
+	scissor.offset.x = 0;
+	scissor.offset.y = 0;
+	scissor.extent.width = m_rndExtent.width;
+	scissor.extent.height = m_rndExtent.height;
+
+	vkCmdSetScissor(pCmdBuf, 0, 1, &scissor);
+
+	vkCmdDraw(pCmdBuf, 3, 1, 0, 0);
+
+	vkCmdEndRendering(pCmdBuf);
 }
 
 
@@ -342,15 +382,17 @@ bool VulkanEngine::InitVulkan() noexcept
         return false;
     }
 
-    VkPhysicalDeviceVulkan12Features features12 = {};
-    features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    features12.bufferDeviceAddress = true;
-    features12.descriptorIndexing = true;
+    VkPhysicalDeviceVulkan12Features features12 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .descriptorIndexing = true,
+        .bufferDeviceAddress = true,
+    };
 
-    VkPhysicalDeviceVulkan13Features features13 = {};
-    features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-    features13.dynamicRendering = true;
-    features13.synchronization2 = true;
+    VkPhysicalDeviceVulkan13Features features13 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .synchronization2 = true,
+        .dynamicRendering = true,
+    };
 
     vkb::PhysicalDeviceSelector vkbPhysDeviceSelector(vkbInst);
     vkb::Result<vkb::PhysicalDevice> vkbPhysDeviceSelectionResult = vkbPhysDeviceSelector
@@ -543,18 +585,19 @@ bool VulkanEngine::InitDescriptors() noexcept
 
     m_pRndImageDescriptors = m_globalDescriptorAllocator.Allocate(m_pVkDevice, m_pRndImageDescriptorLayout);	
 
-	VkDescriptorImageInfo imgInfo{};
-	imgInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-	imgInfo.imageView = m_rndImage.pImageView;
+	VkDescriptorImageInfo imgInfo = {
+        .imageView = m_rndImage.pImageView,
+        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+    };
 	
-	VkWriteDescriptorSet rndImageWrite = {};
-	
-    rndImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;	
-	rndImageWrite.dstBinding = IMAGE_BINDING_IDX;
-	rndImageWrite.dstSet = m_pRndImageDescriptors;
-	rndImageWrite.descriptorCount = 1;
-	rndImageWrite.descriptorType = IMAGE_DESCR_TYPE;
-	rndImageWrite.pImageInfo = &imgInfo;
+	VkWriteDescriptorSet rndImageWrite = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = m_pRndImageDescriptors,
+        .dstBinding = IMAGE_BINDING_IDX,
+        .descriptorCount = 1,
+        .descriptorType = IMAGE_DESCR_TYPE,
+        .pImageInfo = &imgInfo,
+    };
 
 	vkUpdateDescriptorSets(m_pVkDevice, 1, &rndImageWrite, 0, nullptr);
 
@@ -570,22 +613,23 @@ bool VulkanEngine::InitDescriptors() noexcept
 
 bool VulkanEngine::InitPipelines() noexcept
 {
-    return InitBackgroundPipelines();
+    return InitBackgroundPipelines() && InitTrianglePipeline();
 }
 
 
 bool VulkanEngine::InitBackgroundPipelines() noexcept
 {
-    VkPipelineLayoutCreateInfo layoutCreateInfo = {};
+    VkPipelineLayoutCreateInfo layoutCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1,
+        .pSetLayouts = &m_pRndImageDescriptorLayout,
+    };
 
-    layoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutCreateInfo.pSetLayouts = &m_pRndImageDescriptorLayout;
-    layoutCreateInfo.setLayoutCount = 1;
-
-    VkPushConstantRange pushConstRange = {};
-    pushConstRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    pushConstRange.offset = 0;
-    pushConstRange.size = sizeof(ComputePushConstants);
+    VkPushConstantRange pushConstRange = {
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(ComputePushConstants),
+    };
 
     layoutCreateInfo.pPushConstantRanges = &pushConstRange;
     layoutCreateInfo.pushConstantRangeCount = 1;
@@ -593,27 +637,29 @@ bool VulkanEngine::InitBackgroundPipelines() noexcept
     ENG_VK_CHECK(vkCreatePipelineLayout(m_pVkDevice, &layoutCreateInfo, VK_NULL_HANDLE, &m_pGradientPipelineLayout));
 
     VkShaderModule pGradientShaderModule = VK_NULL_HANDLE;
-    if (!vkutil::LoadShaderModule(ENG_GRADIENT_COMPUTE_SHADER_PATH, m_pVkDevice, pGradientShaderModule)) {
-        ENG_ASSERT_FAIL("Failed to load shader module: {}", ENG_GRADIENT_COMPUTE_SHADER_PATH.string().c_str());
+    if (!vkutil::LoadShaderModule(ENG_GRADIENT_CS_PATH, m_pVkDevice, pGradientShaderModule)) {
+        ENG_ASSERT_FAIL("Failed to load shader module: {}", ENG_GRADIENT_CS_PATH.string().c_str());
         return false;
     }
 
     VkShaderModule pSkyShaderModule = VK_NULL_HANDLE;
-    if (!vkutil::LoadShaderModule(ENG_SKY_SHADER_PATH, m_pVkDevice, pSkyShaderModule)) {
-        ENG_ASSERT_FAIL("Failed to load shader module: {}", ENG_SKY_SHADER_PATH.string().c_str());
+    if (!vkutil::LoadShaderModule(ENG_SKY_CS_PATH, m_pVkDevice, pSkyShaderModule)) {
+        ENG_ASSERT_FAIL("Failed to load shader module: {}", ENG_SKY_CS_PATH.string().c_str());
         return false;
     }
 
-    VkPipelineShaderStageCreateInfo stageCreateInfo = {};
-    stageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stageCreateInfo.module = pGradientShaderModule;
-    stageCreateInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stageCreateInfo.pName = "main";
+    VkPipelineShaderStageCreateInfo stageCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .module = pGradientShaderModule,
+        .pName = "main",
+    };
 
-    VkComputePipelineCreateInfo computePipelineCreateInfo = {};
-    computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    computePipelineCreateInfo.layout = m_pGradientPipelineLayout;
-    computePipelineCreateInfo.stage = stageCreateInfo;
+    VkComputePipelineCreateInfo computePipelineCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .stage = stageCreateInfo,
+        .layout = m_pGradientPipelineLayout,
+    };
 
     ComputeEffect gradient = {};
     gradient.name = "gradient";
@@ -622,7 +668,6 @@ bool VulkanEngine::InitBackgroundPipelines() noexcept
     gradient.data.data[1] = glm::vec4(0.f, 0.f, 1.f, 1.f);
 
     ENG_VK_CHECK(vkCreateComputePipelines(m_pVkDevice, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &gradient.pipeline));
-    
     
     computePipelineCreateInfo.stage.module = pSkyShaderModule;
     
@@ -651,6 +696,51 @@ bool VulkanEngine::InitBackgroundPipelines() noexcept
 }
 
 
+bool VulkanEngine::InitTrianglePipeline() noexcept
+{
+    VkShaderModule triangleFragShader;
+	if (!vkutil::LoadShaderModule(ENG_COLORED_TRIANGLE_PS_PATH, m_pVkDevice, triangleFragShader)) {
+		ENG_ASSERT_FAIL("Error when building the triangle fragment shader module");
+        return false;
+	}
+
+	VkShaderModule triangleVertexShader;
+	if (!vkutil::LoadShaderModule(ENG_COLORED_TRIANGLE_VS_PATH, m_pVkDevice, triangleVertexShader)) {
+		ENG_ASSERT_FAIL("Error when building the triangle vertex shader module");
+        return false;
+	}
+	
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	
+    ENG_VK_CHECK(vkCreatePipelineLayout(m_pVkDevice, &pipelineLayoutInfo, nullptr, &m_pTrianglePipelineLayout));
+
+    vkutil::PipelineBuilder pipelineBuilder;
+
+	pipelineBuilder.SetLayout(m_pTrianglePipelineLayout);
+	pipelineBuilder.SetShaders(triangleVertexShader, triangleFragShader);
+	pipelineBuilder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+	pipelineBuilder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+	pipelineBuilder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+	pipelineBuilder.DisableMultisampling();
+	pipelineBuilder.DisableBlending();
+	pipelineBuilder.DisableDepthTest();
+	pipelineBuilder.SetColorAttachmentFormat(m_rndImage.format);
+	pipelineBuilder.SetDepthAttachmentFormat(VK_FORMAT_UNDEFINED);
+	m_pTrianglePipeline = pipelineBuilder.Build(m_pVkDevice);
+
+	vkDestroyShaderModule(m_pVkDevice, triangleFragShader, nullptr);
+	vkDestroyShaderModule(m_pVkDevice, triangleVertexShader, nullptr);
+
+	m_mainDeletionQueue.PushDeletor([&]() {
+		vkDestroyPipelineLayout(m_pVkDevice, m_pTrianglePipelineLayout, nullptr);
+		vkDestroyPipeline(m_pVkDevice, m_pTrianglePipeline, nullptr);
+	});
+
+    return true;
+}
+
+
 bool VulkanEngine::InitImGui() noexcept
 {
     const std::array poolSizes = { 
@@ -667,12 +757,13 @@ bool VulkanEngine::InitImGui() noexcept
 		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
     };
 
-    VkDescriptorPoolCreateInfo poolInfo = {};
-	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-	poolInfo.maxSets = 1000;
-	poolInfo.poolSizeCount = (uint32_t)poolSizes.size();
-	poolInfo.pPoolSizes = poolSizes.data();
+    VkDescriptorPoolCreateInfo poolInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        .maxSets = 1000,
+        .poolSizeCount = (uint32_t)poolSizes.size(),
+        .pPoolSizes = poolSizes.data(),
+    };
 
 	VkDescriptorPool pImGuiPool = VK_NULL_HANDLE;
 	ENG_VK_CHECK(vkCreateDescriptorPool(m_pVkDevice, &poolInfo, nullptr, &pImGuiPool));
@@ -681,28 +772,29 @@ bool VulkanEngine::InitImGui() noexcept
 
     ImGui_ImplSDL2_InitForVulkan(m_pWindow);
 
-    ImGui_ImplVulkan_InitInfo initInfo = {};
-
-    initInfo.Instance = m_pVkInstance;
-	initInfo.PhysicalDevice = m_pVkPhysDevice;
-	initInfo.Device = m_pVkDevice;
-	initInfo.Queue = m_pVkGraphicsQueue;
-	initInfo.DescriptorPool = pImGuiPool;
-	initInfo.MinImageCount = 3;
-	initInfo.ImageCount = 3;
-	initInfo.UseDynamicRendering = true;
-	initInfo.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-	initInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-	initInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_swapChainImageFormat;
-	initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    ImGui_ImplVulkan_InitInfo initInfo = {
+        .Instance = m_pVkInstance,
+        .PhysicalDevice = m_pVkPhysDevice,
+        .Device = m_pVkDevice,
+        .Queue = m_pVkGraphicsQueue,
+        .DescriptorPool = pImGuiPool,
+        .MinImageCount = 3,
+        .ImageCount = 3,
+        .UseDynamicRendering = true,
+    };
+    
+    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    initInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    initInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_swapChainImageFormat;
 
 	ImGui_ImplVulkan_Init(&initInfo);
 
     ImGui_ImplVulkan_CreateFontsTexture();
 
-	m_mainDeletionQueue.PushDeletor([=]() {
+	m_mainDeletionQueue.PushDeletor([this, pDescPool = pImGuiPool]() {
 		ImGui_ImplVulkan_Shutdown();
-		vkDestroyDescriptorPool(m_pVkDevice, pImGuiPool, nullptr);
+		vkDestroyDescriptorPool(m_pVkDevice, pDescPool, nullptr);
 	});
 
     return true;

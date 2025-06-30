@@ -29,4 +29,6 @@ namespace vkinit
 
     VkRenderingAttachmentInfo RenderingAttachmentInfo(VkImageView pImageView, const std::optional<VkClearValue>& clearValue, VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) noexcept;
     VkRenderingInfo RenderingInfo(const VkExtent2D& extent, const VkRenderingAttachmentInfo* pColorAttachment, const VkRenderingAttachmentInfo* pDepthAttachment) noexcept;
+
+    VkPipelineShaderStageCreateInfo PipelineShaderStageCreateInfo(VkShaderStageFlagBits stage, VkShaderModule pShaderModule, const char* pEntry = "main") noexcept;
 }
