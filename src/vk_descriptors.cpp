@@ -84,7 +84,6 @@ VkDescriptorSet DescriptorAllocator::Allocate(VkDevice pDevice, VkDescriptorSetL
     VkDescriptorSetAllocateInfo info = {};
 
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    info.pNext = VK_NULL_HANDLE;
     info.descriptorPool = m_pPool;
     info.pSetLayouts = &pLayout;
     info.descriptorSetCount = 1;

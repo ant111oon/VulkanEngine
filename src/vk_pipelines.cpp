@@ -23,7 +23,6 @@ namespace vkutil
         VkShaderModuleCreateInfo createInfo = {};
         
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        createInfo.pNext = nullptr;
         createInfo.codeSize = buffer.size() * sizeof(uint32_t);
         createInfo.pCode = buffer.data();
 

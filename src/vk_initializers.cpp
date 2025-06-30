@@ -10,7 +10,6 @@ namespace vkinit
         VkCommandPoolCreateInfo info = {};
         
         info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        info.pNext = nullptr;
         info.queueFamilyIndex = queueFamilyIndex;
         info.flags = flags;
         
@@ -23,7 +22,6 @@ namespace vkinit
         VkCommandBufferAllocateInfo info = {};
         
         info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        info.pNext = nullptr;
         info.commandPool = pVkCmdPool;
         info.commandBufferCount = count;
         info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -37,7 +35,6 @@ namespace vkinit
         VkFenceCreateInfo info = {};
         
         info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        info.pNext = nullptr;
         info.flags = flags;
 
         return info;
@@ -49,7 +46,6 @@ namespace vkinit
         VkSemaphoreCreateInfo info = {};
 
         info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-        info.pNext = nullptr;
         info.flags = flags;
 
         return info;
@@ -61,8 +57,6 @@ namespace vkinit
         VkCommandBufferBeginInfo info = {};
 
         info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        info.pNext = nullptr;
-        info.pInheritanceInfo = nullptr;
         info.flags = flags;
 
         return info;
@@ -88,7 +82,6 @@ namespace vkinit
         VkSemaphoreSubmitInfo submitInfo = {};
 
         submitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        submitInfo.pNext = nullptr;
         submitInfo.semaphore = pSemaphore;
         submitInfo.stageMask = stageMask;
         submitInfo.deviceIndex = 0;
@@ -103,7 +96,6 @@ namespace vkinit
         VkCommandBufferSubmitInfo info = {};
 
         info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        info.pNext = nullptr;
         info.commandBuffer = pCmdBuf;
         info.deviceMask = 0;
 
@@ -117,7 +109,6 @@ namespace vkinit
         VkSubmitInfo2 info = {};
 
         info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        info.pNext = nullptr;
         info.waitSemaphoreInfoCount = pWaitSemaphoreInfo == nullptr ? 0 : 1;
         info.pWaitSemaphoreInfos = pWaitSemaphoreInfo;
         info.signalSemaphoreInfoCount = pSignalSemaphoreInfo == nullptr ? 0 : 1;
@@ -134,17 +125,12 @@ namespace vkinit
         VkImageCreateInfo info = {};
 
         info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        info.pNext = nullptr;
-
         info.imageType = VK_IMAGE_TYPE_2D;
-
         info.extent = extent;
         info.format = format;
         info.usage = usageFlags;
-
         info.mipLevels = 1;
         info.arrayLayers = 1;
-
         info.samples = VK_SAMPLE_COUNT_1_BIT;
         info.tiling = VK_IMAGE_TILING_OPTIMAL;
 
@@ -157,13 +143,9 @@ namespace vkinit
         VkImageViewCreateInfo info = {};
 
         info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        info.pNext = nullptr;
-
         info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-
         info.image = pImage;
         info.format = format;
-
         info.subresourceRange.aspectMask = aspectFlags;
         info.subresourceRange.levelCount = 1;
         info.subresourceRange.layerCount = 1;
@@ -179,7 +161,6 @@ namespace vkinit
         VkRenderingAttachmentInfo info = {};
 
         info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        info.pNext = nullptr;
         info.imageView = pImageView;
         info.imageLayout = layout;
         info.clearValue = clearValue.value_or({0});
@@ -195,13 +176,9 @@ namespace vkinit
         VkRenderingInfo info = {};
 
         info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        info.pNext = nullptr;
-
         info.pColorAttachments = pColorAttachment;
         info.colorAttachmentCount = 1;
-
         info.pDepthAttachment = pDepthAttachment;
-
         info.layerCount = 1;
         info.renderArea = VkRect2D { VkOffset2D { 0, 0 }, extent };
 

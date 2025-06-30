@@ -264,7 +264,6 @@ void VulkanEngine::Render() noexcept
     VkPresentInfoKHR presentInfo = {};
 
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-	presentInfo.pNext = nullptr;
 	presentInfo.pSwapchains = &m_pVkSwapChain;
 	presentInfo.swapchainCount = 1;
 	presentInfo.pWaitSemaphores = &currFrameData.pVkRenderSemaphore;
@@ -550,9 +549,7 @@ bool VulkanEngine::InitDescriptors() noexcept
 	
 	VkWriteDescriptorSet rndImageWrite = {};
 	
-    rndImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	rndImageWrite.pNext = nullptr;
-	
+    rndImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;	
 	rndImageWrite.dstBinding = IMAGE_BINDING_IDX;
 	rndImageWrite.dstSet = m_pRndImageDescriptors;
 	rndImageWrite.descriptorCount = 1;
@@ -582,8 +579,6 @@ bool VulkanEngine::InitBackgroundPipelines() noexcept
     VkPipelineLayoutCreateInfo layoutCreateInfo = {};
 
     layoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutCreateInfo.pNext = VK_NULL_HANDLE;
-
     layoutCreateInfo.pSetLayouts = &m_pRndImageDescriptorLayout;
     layoutCreateInfo.setLayoutCount = 1;
 
@@ -611,14 +606,12 @@ bool VulkanEngine::InitBackgroundPipelines() noexcept
 
     VkPipelineShaderStageCreateInfo stageCreateInfo = {};
     stageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stageCreateInfo.pNext = VK_NULL_HANDLE;
     stageCreateInfo.module = pGradientShaderModule;
     stageCreateInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     stageCreateInfo.pName = "main";
 
     VkComputePipelineCreateInfo computePipelineCreateInfo = {};
     computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    computePipelineCreateInfo.pNext = VK_NULL_HANDLE;
     computePipelineCreateInfo.layout = m_pGradientPipelineLayout;
     computePipelineCreateInfo.stage = stageCreateInfo;
 

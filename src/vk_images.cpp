@@ -10,7 +10,6 @@ namespace vkutil
     {
         VkImageMemoryBarrier2 imageBarrier = {};
         imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        imageBarrier.pNext = VK_NULL_HANDLE;
         imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         imageBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
         imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
@@ -24,7 +23,6 @@ namespace vkutil
 
         VkDependencyInfo depInfo = {};
         depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        depInfo.pNext = VK_NULL_HANDLE;
         depInfo.imageMemoryBarrierCount = 1;
         depInfo.pImageMemoryBarriers = &imageBarrier;
 
@@ -37,7 +35,6 @@ namespace vkutil
         VkImageBlit2 blitRegion = {};
         
         blitRegion.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
-        blitRegion.pNext = VK_NULL_HANDLE;
         
         blitRegion.srcOffsets[1].x = srcExtent.width;
         blitRegion.srcOffsets[1].y = srcExtent.height;
@@ -60,7 +57,6 @@ namespace vkutil
         VkBlitImageInfo2 blitInfo = {};
 
         blitInfo.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
-        blitInfo.pNext = VK_NULL_HANDLE;
         
         blitInfo.srcImage = pSrcImage;
         blitInfo.dstImage = pDstImage;
