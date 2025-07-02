@@ -5,6 +5,8 @@
 
 #include <vk_mem_alloc.h>
 
+#include <glm/glm.hpp>
+
 #include "core.h"
 
 
@@ -15,6 +17,40 @@ struct ImageHandle
     VmaAllocation pAllocation;
     VkExtent3D extent;
     VkFormat format;
+};
+
+
+struct BufferHandle
+{
+    VkBuffer pBuffer;
+    VmaAllocation pAllocation;
+    VmaAllocationInfo allocationInfo;
+};
+
+
+struct Vertex
+{
+	glm::vec3 position;
+	float uvX;
+	glm::vec3 normal;
+	float uvY;
+	glm::vec4 color;
+};
+
+
+struct MeshGpuBuffers
+{
+    BufferHandle idxBuff;
+    BufferHandle vertBuff;
+
+    VkDeviceAddress vertBufferGpuAddress;
+};
+
+
+struct MeshDrawPushConstants
+{
+    glm::mat4 transform;
+    VkDeviceAddress vertBufferGpuAddress;
 };
 
 

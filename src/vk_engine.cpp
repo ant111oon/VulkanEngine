@@ -31,6 +31,7 @@ static const std::filesystem::path ENG_GRADIENT_CS_PATH = "../shaders/bin/gradie
 static const std::filesystem::path ENG_SKY_CS_PATH = "../shaders/bin/sky.comp.spv";
 static const std::filesystem::path ENG_COLORED_TRIANGLE_VS_PATH = "../shaders/bin/colored_triangle.vert.spv";
 static const std::filesystem::path ENG_COLORED_TRIANGLE_PS_PATH = "../shaders/bin/colored_triangle.frag.spv";
+static const std::filesystem::path ENG_COLORED_TRIANGLE_MESH_VS_PATH = "../shaders/bin/colored_triangle_mesh.vert.spv";
 
 
 #define ENG_RND_BACKGROUND_VERSION_CLEAR 0
@@ -100,6 +101,8 @@ void VulkanEngine::Init() noexcept
         ENG_ASSERT_FAIL("Failed to init ImGui");
         return;
     }
+
+    InitDefaultData();
 
     m_isInitialized = true;
 }
@@ -339,6 +342,17 @@ void VulkanEngine::RenderGeometry(VkCommandBuffer pCmdBuf) noexcept
 	vkCmdSetScissor(pCmdBuf, 0, 1, &scissor);
 
 	vkCmdDraw(pCmdBuf, 3, 1, 0, 0);
+
+    vkCmdBindPipeline(pCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pMeshPipeline);
+
+	MeshDrawPushConstants pushConstants = {};
+	pushConstants.transform = glm::mat4(1.f);
+	pushConstants.vertBufferGpuAddress = m_rectangle.vertBufferGpuAddress;
+
+	vkCmdPushConstants(pCmdBuf, m_pMeshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshDrawPushConstants), &pushConstants);
+	vkCmdBindIndexBuffer(pCmdBuf, m_rectangle.idxBuff.pBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+	vkCmdDrawIndexed(pCmdBuf, 6, 1, 0, 0, 0);
 
 	vkCmdEndRendering(pCmdBuf);
 }
@@ -613,7 +627,9 @@ bool VulkanEngine::InitDescriptors() noexcept
 
 bool VulkanEngine::InitPipelines() noexcept
 {
-    return InitBackgroundPipelines() && InitTrianglePipeline();
+    return 
+        InitBackgroundPipelines() && 
+        InitTrianglePipeline() && InitMeshPipeline();
 }
 
 
@@ -741,6 +757,90 @@ bool VulkanEngine::InitTrianglePipeline() noexcept
 }
 
 
+bool VulkanEngine::InitMeshPipeline() noexcept
+{
+    VkShaderModule triangleFragShader;
+	if (!vkutil::LoadShaderModule(ENG_COLORED_TRIANGLE_PS_PATH, m_pVkDevice, triangleFragShader)) {
+		ENG_ASSERT_FAIL("Error when building the triangle fragment shader module");
+        return false;
+	}
+
+	VkShaderModule triangleVertexShader;
+	if (!vkutil::LoadShaderModule(ENG_COLORED_TRIANGLE_MESH_VS_PATH, m_pVkDevice, triangleVertexShader)) {
+		ENG_ASSERT_FAIL("Error when building the mesh triangle vertex shader module");
+        return false;
+	}
+
+	VkPushConstantRange bufferRange = {};
+	bufferRange.offset = 0;
+	bufferRange.size = sizeof(MeshDrawPushConstants);
+	bufferRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+	pipelineLayoutInfo.pPushConstantRanges = &bufferRange;
+	pipelineLayoutInfo.pushConstantRangeCount = 1;
+
+	ENG_VK_CHECK(vkCreatePipelineLayout(m_pVkDevice, &pipelineLayoutInfo, nullptr, &m_pMeshPipelineLayout));
+
+    vkutil::PipelineBuilder pipelineBuilder;
+
+	pipelineBuilder.SetLayout(m_pMeshPipelineLayout);
+	pipelineBuilder.SetShaders(triangleVertexShader, triangleFragShader);
+	pipelineBuilder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+	pipelineBuilder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+	pipelineBuilder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+	pipelineBuilder.DisableMultisampling();
+	pipelineBuilder.DisableBlending();
+	pipelineBuilder.DisableDepthTest();
+	pipelineBuilder.SetColorAttachmentFormat(m_rndImage.format);
+	pipelineBuilder.SetDepthAttachmentFormat(VK_FORMAT_UNDEFINED);
+	m_pMeshPipeline = pipelineBuilder.Build(m_pVkDevice);
+
+	vkDestroyShaderModule(m_pVkDevice, triangleFragShader, nullptr);
+	vkDestroyShaderModule(m_pVkDevice, triangleVertexShader, nullptr);
+
+	m_mainDeletionQueue.PushDeletor([&]() {
+		vkDestroyPipelineLayout(m_pVkDevice, m_pMeshPipelineLayout, nullptr);
+		vkDestroyPipeline(m_pVkDevice, m_pMeshPipeline, nullptr);
+	});
+
+    return true;
+}
+
+
+void VulkanEngine::InitDefaultData() noexcept
+{
+    std::array<Vertex,4> rectVertices;
+
+	rectVertices[0].position = {0.5,-0.5, 0};
+	rectVertices[1].position = {0.5,0.5, 0};
+	rectVertices[2].position = {-0.5,-0.5, 0};
+	rectVertices[3].position = {-0.5,0.5, 0};
+
+	rectVertices[0].color = {0,0, 0,1};
+	rectVertices[1].color = { 0.5,0.5,0.5 ,1};
+	rectVertices[2].color = { 1,0, 0,1 };
+	rectVertices[3].color = { 0,1, 0,1 };
+
+	std::array<uint32_t,6> rectIndices;
+
+	rectIndices[0] = 0;
+	rectIndices[1] = 1;
+	rectIndices[2] = 2;
+
+	rectIndices[3] = 2;
+	rectIndices[4] = 1;
+	rectIndices[5] = 3;
+
+	m_rectangle = UploadMesh(rectIndices, rectVertices);
+
+	m_mainDeletionQueue.PushDeletor([&]() {
+		DestroyBuffer(m_rectangle.idxBuff);
+		DestroyBuffer(m_rectangle.vertBuff);
+	});
+}
+
+
 bool VulkanEngine::InitImGui() noexcept
 {
     const std::array poolSizes = { 
@@ -801,7 +901,7 @@ bool VulkanEngine::InitImGui() noexcept
 }
 
 
-void VulkanEngine::ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&& function) noexcept
+void VulkanEngine::ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&& function) const noexcept
 {
     VkCommandBuffer pCmdBuf = m_pImmCommandBuffer;
 
@@ -819,4 +919,76 @@ void VulkanEngine::ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&
 
     ENG_VK_CHECK(vkQueueSubmit2(m_pVkGraphicsQueue, 1, &submitInfo2, m_pImmFence));
     ENG_VK_CHECK(vkWaitForFences(m_pVkDevice, 1, &m_pImmFence, true, 9'999'999'999));
+}
+
+BufferHandle VulkanEngine::AllocateBuffer(size_t size, VkBufferUsageFlags bufUsage, VmaMemoryUsage memUsage) const noexcept
+{
+    VkBufferCreateInfo bufCreateInfo = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bufCreateInfo.size = size;
+    bufCreateInfo.usage = bufUsage;
+
+    VmaAllocationCreateInfo allocCreateInfo = {};
+    allocCreateInfo.usage = memUsage;
+    allocCreateInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    BufferHandle buffer = {};
+    ENG_VK_CHECK(vmaCreateBuffer(m_pVMA, &bufCreateInfo, &allocCreateInfo, &buffer.pBuffer, &buffer.pAllocation, &buffer.allocationInfo));
+
+    return buffer;
+}
+
+
+void VulkanEngine::DestroyBuffer(BufferHandle& buffer) const noexcept
+{
+    vmaDestroyBuffer(m_pVMA, buffer.pBuffer, buffer.pAllocation);
+    
+    buffer.pBuffer = VK_NULL_HANDLE;
+    buffer.pAllocation = VK_NULL_HANDLE;
+}
+
+
+MeshGpuBuffers VulkanEngine::UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices)  const noexcept
+{
+    
+    MeshGpuBuffers mesh;
+    
+	const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+	mesh.vertBuff = AllocateBuffer(vertexBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VMA_MEMORY_USAGE_GPU_ONLY);
+
+	VkBufferDeviceAddressInfo deviceAdressInfo = { 
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .buffer = mesh.vertBuff.pBuffer
+    };
+	mesh.vertBufferGpuAddress = vkGetBufferDeviceAddress(m_pVkDevice, &deviceAdressInfo);
+
+    const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+	mesh.idxBuff = AllocateBuffer(indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+    BufferHandle stagingBuff = AllocateBuffer(vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+
+	void* data = stagingBuff.pAllocation->GetMappedData();
+
+	memcpy(data, vertices.data(), vertexBufferSize);
+	memcpy((uint8_t*)data + vertexBufferSize, indices.data(), indexBufferSize);
+
+	ImmediateSubmit([&](VkCommandBuffer pCmd) {
+		VkBufferCopy vertexCopy = { 0 };
+		vertexCopy.dstOffset = 0;
+		vertexCopy.srcOffset = 0;
+		vertexCopy.size = vertexBufferSize;
+
+		vkCmdCopyBuffer(pCmd, stagingBuff.pBuffer, mesh.vertBuff.pBuffer, 1, &vertexCopy);
+
+		VkBufferCopy indexCopy = { 0 };
+		indexCopy.dstOffset = 0;
+		indexCopy.srcOffset = vertexBufferSize;
+		indexCopy.size = indexBufferSize;
+
+		vkCmdCopyBuffer(pCmd, stagingBuff.pBuffer, mesh.idxBuff.pBuffer, 1, &indexCopy);
+	});
+
+	DestroyBuffer(stagingBuff);
+
+	return mesh;
 }

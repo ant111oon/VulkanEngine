@@ -104,9 +104,17 @@ private:
     bool InitPipelines() noexcept;
     bool InitBackgroundPipelines() noexcept;
     bool InitTrianglePipeline() noexcept;
+    bool InitMeshPipeline() noexcept;
+
+    void InitDefaultData() noexcept;
 
     bool InitImGui() noexcept;
-    void ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&& function) noexcept;
+    void ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&& function) const noexcept;
+
+    BufferHandle AllocateBuffer(size_t size, VkBufferUsageFlags bufUsage, VmaMemoryUsage memUsage) const noexcept;
+    void DestroyBuffer(BufferHandle& buffer) const noexcept;
+
+    MeshGpuBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices) const noexcept;
 
     FrameData& GetCurrentFrameData() noexcept { return m_framesData[m_frameNumber % FRAMES_DATA_INST_COUNT]; }
 
@@ -144,6 +152,11 @@ private:
 
     VkPipelineLayout m_pTrianglePipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_pTrianglePipeline = VK_NULL_HANDLE;
+
+    VkPipelineLayout m_pMeshPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline m_pMeshPipeline = VK_NULL_HANDLE;
+
+    MeshGpuBuffers m_rectangle;
 
     // immediate submit structures
     VkFence m_pImmFence;
