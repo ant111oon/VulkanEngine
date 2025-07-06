@@ -20,6 +20,8 @@ namespace vkutil
         void SetPolygonMode(VkPolygonMode mode) noexcept;
         void SetCullMode(VkCullModeFlags cullMode, VkFrontFace frontFace) noexcept;
         void SetDepthTest(bool depthWriteEnable, VkCompareOp cmpOp) noexcept;
+        void SetAdditiveBlending() noexcept;
+        void SetAlphaBlending() noexcept;
 
         void SetColorAttachmentFormat(VkFormat format) noexcept;
         void SetDepthAttachmentFormat(VkFormat format) noexcept;

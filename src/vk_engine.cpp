@@ -30,8 +30,8 @@
 
 static const std::filesystem::path ENG_GRADIENT_CS_PATH = "../shaders/bin/gradient.comp.spv";
 static const std::filesystem::path ENG_SKY_CS_PATH = "../shaders/bin/sky.comp.spv";
-static const std::filesystem::path ENG_COLORED_TRIANGLE_PS_PATH = "../shaders/bin/colored_triangle.frag.spv";
-static const std::filesystem::path ENG_COLORED_TRIANGLE_MESH_VS_PATH = "../shaders/bin/colored_triangle_mesh.vert.spv";
+static const std::filesystem::path ENG_COLORED_TRIANGLE_PS_PATH = "../shaders/bin/colored_mesh.frag.spv";
+static const std::filesystem::path ENG_COLORED_TRIANGLE_MESH_VS_PATH = "../shaders/bin/colored_mesh.vert.spv";
 static const std::filesystem::path ENG_BASIC_MESH_PATH = "../assets/basicmesh.glb";
 
 
@@ -764,7 +764,7 @@ bool VulkanEngine::InitMeshPipeline() noexcept
 	pipelineBuilder.SetPolygonMode(VK_POLYGON_MODE_FILL);
 	pipelineBuilder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
 	pipelineBuilder.DisableMultisampling();
-	pipelineBuilder.DisableBlending();
+	pipelineBuilder.SetAlphaBlending();
 	pipelineBuilder.SetDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	pipelineBuilder.SetColorAttachmentFormat(m_rndImage.format);
 	pipelineBuilder.SetDepthAttachmentFormat(m_depthImage.format);
