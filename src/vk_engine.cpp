@@ -62,7 +62,7 @@ void VulkanEngine::Init() noexcept
 
     ENG_CHECK_SDL_ERROR(SDL_Init(SDL_INIT_VIDEO) == 0);
 
-    const SDL_WindowFlags windowFlags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN);
+    const SDL_WindowFlags windowFlags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 
     m_pWindow = SDL_CreateWindow("Vulkan Engine", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
         m_windowExtent.width, m_windowExtent.height, windowFlags);
@@ -177,11 +177,16 @@ void VulkanEngine::Run() noexcept
             continue;
         }
 
+        if (m_needResizeSwapChain) {
+            ResizeSwapChain();
+        }
+
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
         if (ImGui::Begin("Debug info")) {	
+            ImGui::SliderFloat("Render Scale", &m_renderScale, 0.3f, 1.f);
 			ImGui::SliderInt("Mesh Index", &m_currMeshIdx, 0, 2);
 
 			ComputeEffect& selected = m_backgroundEffects[m_currBackgroundEffect];
@@ -226,16 +231,21 @@ void VulkanEngine::Render() noexcept
     constexpr uint64_t acquireNextSwapChainImageTimeoutNs = 1'000'000'000;
 
     uint32_t swapChainImageIndex;
-    vkAcquireNextImageKHR(m_pVkDevice, m_pVkSwapChain, acquireNextSwapChainImageTimeoutNs,
+    VkResult acquireResult = vkAcquireNextImageKHR(m_pVkDevice, m_pVkSwapChain, acquireNextSwapChainImageTimeoutNs,
         currFrameData.pVkSwapChainSemaphore, VK_NULL_HANDLE, &swapChainImageIndex);
         
+    if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
+        m_needResizeSwapChain = true;
+        return;
+    }
+
     VkCommandBuffer pCmdBuf = currFrameData.pVkCmdBuffer;
         
     ENG_VK_CHECK(vkResetFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence));
     ENG_VK_CHECK(vkResetCommandBuffer(pCmdBuf, 0));
 
-    m_rndExtent.width = m_rndImage.extent.width;
-	m_rndExtent.height = m_rndImage.extent.height;
+    m_rndExtent.width  = std::min(m_swapChainExtent.width, m_rndImage.extent.width) * m_renderScale;
+    m_rndExtent.height = std::min(m_swapChainExtent.height, m_rndImage.extent.height) * m_renderScale;
 
     const VkCommandBufferBeginInfo cmdBuffBeginInfo = vkinit::CmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     ENG_VK_CHECK(vkBeginCommandBuffer(pCmdBuf, &cmdBuffBeginInfo));
@@ -281,7 +291,13 @@ void VulkanEngine::Render() noexcept
         .pImageIndices = &swapChainImageIndex,
     };
 
-	ENG_VK_CHECK(vkQueuePresentKHR(m_pVkGraphicsQueue, &presentInfo));
+    VkResult presentResult = vkQueuePresentKHR(m_pVkGraphicsQueue, &presentInfo);
+	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR) {
+        m_needResizeSwapChain = true;
+        return;
+    } else {
+        ENG_VK_CHECK(presentResult);
+    }
 
 	++m_frameNumber;
 }
@@ -544,6 +560,23 @@ bool VulkanEngine::CreateSwapChain(uint32_t width, uint32_t height) noexcept
 	m_vkSwapChainImageViews = vkbSwapChain.get_image_views().value();
 
     return true;
+}
+
+
+void VulkanEngine::ResizeSwapChain() noexcept
+{
+    vkDeviceWaitIdle(m_pVkDevice);
+    DestroySwapChain();
+
+    int32_t w = 0, h = 0;
+    SDL_GetWindowSize(m_pWindow, &w, &h);
+
+    m_windowExtent.width = w;
+    m_windowExtent.height = h;
+
+    CreateSwapChain(m_windowExtent.width, m_windowExtent.height);
+
+    m_needResizeSwapChain = false;
 }
 
 

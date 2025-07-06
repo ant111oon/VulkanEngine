@@ -97,6 +97,7 @@ private:
 
     bool InitSwapChain() noexcept;
     bool CreateSwapChain(uint32_t width, uint32_t height) noexcept;
+    void ResizeSwapChain() noexcept;
     void DestroySwapChain() noexcept;
 
     bool InitCommands() noexcept;
@@ -143,6 +144,7 @@ private:
     ImageHandle m_rndImage;
     ImageHandle m_depthImage;
     VkExtent2D m_rndExtent;
+    float m_renderScale = 1.f;
 
     DescriptorAllocator m_globalDescriptorAllocator;
 
@@ -171,4 +173,5 @@ private:
 	uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;
 	bool m_needRender = true;
+	bool m_needResizeSwapChain = false;
 };
