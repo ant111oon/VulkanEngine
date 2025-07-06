@@ -185,10 +185,9 @@ void VulkanEngine::Run() noexcept
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        if (ImGui::Begin("Debug info")) {	
-            ImGui::SliderFloat("Render Scale", &m_renderScale, 0.3f, 1.f);
-			ImGui::SliderInt("Mesh Index", &m_currMeshIdx, 0, 2);
-
+        if (ImGui::Begin("Debug info")) {
+            ImGui::SliderInt("Mesh Index", &m_currMeshIdx, 0, 2);
+            
 			ComputeEffect& selected = m_backgroundEffects[m_currBackgroundEffect];
 		
 			ImGui::Text("Selected effect: %s", selected.name.data());
@@ -201,6 +200,28 @@ void VulkanEngine::Run() noexcept
                 sprintf_s(label, "data %u", i);
 
                 ImGui::InputFloat4(label,(float*)&data.x);
+            }
+
+            ImGui::SliderFloat("Dynamic Resolution Scale", &m_dynResScale, 0.1f, 1.f);
+
+            static const char* dynResCopyFileters[] = { "Linear", "Nearest" };
+            static const char* pCurrDynResCopyFileter = dynResCopyFileters[0];
+            if (ImGui::BeginCombo("Dynamic Resolution Copy Filter", pCurrDynResCopyFileter)) {
+                for (size_t i = 0; i < IM_ARRAYSIZE(dynResCopyFileters); ++i) {
+                    const bool isSelected = (pCurrDynResCopyFileter == dynResCopyFileters[i]);
+                    
+                    if (ImGui::Selectable(dynResCopyFileters[i], isSelected)) {
+                        pCurrDynResCopyFileter = dynResCopyFileters[i];
+                    }
+                    
+                    if (isSelected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+
+                m_dynResCopyFilter = pCurrDynResCopyFileter == dynResCopyFileters[0] ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+
+                ImGui::EndCombo();
             }
 		}
 		ImGui::End();
@@ -244,8 +265,8 @@ void VulkanEngine::Render() noexcept
     ENG_VK_CHECK(vkResetFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence));
     ENG_VK_CHECK(vkResetCommandBuffer(pCmdBuf, 0));
 
-    m_rndExtent.width  = std::min(m_swapChainExtent.width, m_rndImage.extent.width) * m_renderScale;
-    m_rndExtent.height = std::min(m_swapChainExtent.height, m_rndImage.extent.height) * m_renderScale;
+    m_rndExtent.width  = std::min(m_swapChainExtent.width, m_rndImage.extent.width) * m_dynResScale;
+    m_rndExtent.height = std::min(m_swapChainExtent.height, m_rndImage.extent.height) * m_dynResScale;
 
     const VkCommandBufferBeginInfo cmdBuffBeginInfo = vkinit::CmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     ENG_VK_CHECK(vkBeginCommandBuffer(pCmdBuf, &cmdBuffBeginInfo));
@@ -263,7 +284,7 @@ void VulkanEngine::Render() noexcept
     
     vkutil::TransitImage(pCmdBuf, m_vkSwapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     
-    vkutil::CopyImage(pCmdBuf, m_rndImage.pImage, m_rndExtent, m_vkSwapChainImages[swapChainImageIndex], m_swapChainExtent);
+    vkutil::CopyImage(pCmdBuf, m_rndImage.pImage, m_rndExtent, m_vkSwapChainImages[swapChainImageIndex], m_swapChainExtent, m_dynResCopyFilter);
 
     vkutil::TransitImage(pCmdBuf, m_vkSwapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     

@@ -144,7 +144,8 @@ private:
     ImageHandle m_rndImage;
     ImageHandle m_depthImage;
     VkExtent2D m_rndExtent;
-    float m_renderScale = 1.f;
+    float m_dynResScale = 1.f;
+    VkFilter m_dynResCopyFilter = VK_FILTER_LINEAR;
 
     DescriptorAllocator m_globalDescriptorAllocator;
 

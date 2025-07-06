@@ -32,7 +32,7 @@ namespace vkutil
     }
     
     
-    void CopyImage(VkCommandBuffer pCmdBuf, VkImage pSrcImage, const VkExtent2D& srcExtent, VkImage pDstImage, const VkExtent2D& dstExtent) noexcept
+    void CopyImage(VkCommandBuffer pCmdBuf, VkImage pSrcImage, const VkExtent2D& srcExtent, VkImage pDstImage, const VkExtent2D& dstExtent, VkFilter filter) noexcept
     {
         VkImageBlit2 blitRegion = {};
         
@@ -64,7 +64,7 @@ namespace vkutil
             .regionCount = 1,
             .srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .filter = VK_FILTER_LINEAR,
+            .filter = filter,
         };
 
         vkCmdBlitImage2(pCmdBuf, &blitInfo);

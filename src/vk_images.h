@@ -6,5 +6,5 @@
 namespace vkutil
 {
     void TransitImage(VkCommandBuffer pCmdBuf, VkImage pImage, VkImageLayout currentLayout, VkImageLayout newLayout) noexcept;
-    void CopyImage(VkCommandBuffer pCmdBuf, VkImage pSrcImage, const VkExtent2D& srcExtent, VkImage pDstImage, const VkExtent2D& dstExtent) noexcept;
+    void CopyImage(VkCommandBuffer pCmdBuf, VkImage pSrcImage, const VkExtent2D& srcExtent, VkImage pDstImage, const VkExtent2D& dstExtent, VkFilter filter = VK_FILTER_LINEAR) noexcept;
 }
