@@ -2,6 +2,7 @@
 
 #include "vk_types.h"
 #include "vk_descriptors.h"
+#include "vk_loader.h"
 
 #include <array>
 #include <deque>
@@ -76,6 +77,8 @@ public:
 
     bool IsInitialized() const noexcept { return m_isInitialized; }
 
+    MeshGpuBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices) const noexcept;
+
 private:
     VulkanEngine() = default;
     ~VulkanEngine();
@@ -103,7 +106,6 @@ private:
 
     bool InitPipelines() noexcept;
     bool InitBackgroundPipelines() noexcept;
-    bool InitTrianglePipeline() noexcept;
     bool InitMeshPipeline() noexcept;
 
     void InitDefaultData() noexcept;
@@ -113,8 +115,6 @@ private:
 
     BufferHandle AllocateBuffer(size_t size, VkBufferUsageFlags bufUsage, VmaMemoryUsage memUsage) const noexcept;
     void DestroyBuffer(BufferHandle& buffer) const noexcept;
-
-    MeshGpuBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices) const noexcept;
 
     FrameData& GetCurrentFrameData() noexcept { return m_framesData[m_frameNumber % FRAMES_DATA_INST_COUNT]; }
 
@@ -141,6 +141,7 @@ private:
     uint32_t m_graphicsQueueFamily;
 
     ImageHandle m_rndImage;
+    ImageHandle m_depthImage;
     VkExtent2D m_rndExtent;
 
     DescriptorAllocator m_globalDescriptorAllocator;
@@ -148,15 +149,10 @@ private:
 	VkDescriptorSet m_pRndImageDescriptors = VK_NULL_HANDLE;
 	VkDescriptorSetLayout m_pRndImageDescriptorLayout = VK_NULL_HANDLE;
 
-    VkPipelineLayout m_pGradientPipelineLayout = VK_NULL_HANDLE;
-
-    VkPipelineLayout m_pTrianglePipelineLayout = VK_NULL_HANDLE;
-    VkPipeline m_pTrianglePipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_pGradientPipelineLayout = VK_NULL_HANDLE;;
 
     VkPipelineLayout m_pMeshPipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_pMeshPipeline = VK_NULL_HANDLE;
-
-    MeshGpuBuffers m_rectangle;
 
     // immediate submit structures
     VkFence m_pImmFence;
@@ -168,6 +164,9 @@ private:
 
     std::vector<ComputeEffect> m_backgroundEffects;
     int32_t m_currBackgroundEffect = 0;
+    int32_t m_currMeshIdx = 2;
+
+    std::vector<std::shared_ptr<MeshAsset>> m_testMeshes;
 
 	uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;

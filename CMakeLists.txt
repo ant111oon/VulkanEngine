@@ -155,8 +155,7 @@ foreach(SHADER_SRC_FILE ${SHADER_SRC_FILES})
     
     set(SHADER_SPIRV ${ENG_SHADERS_BIN_DIR}/${FILE_NAME}.spv)
     
-    message(STATUS "GLSL file found: ${SHADER_SRC_FILE}")
-    message(STATUS "Will output to: ${SHADER_SPIRV}")
+    message(STATUS "${SHADER_SRC_FILE} -> ${SHADER_SPIRV}")
     
     add_custom_command(
         OUTPUT ${SHADER_SPIRV}

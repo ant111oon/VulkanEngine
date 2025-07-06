@@ -170,8 +170,21 @@ namespace vkinit
 
         return info;
     }
+
     
-    
+    VkRenderingAttachmentInfo DepthAttachmentInfo(VkImageView pImageView, VkImageLayout layout) noexcept
+    {
+        VkRenderingAttachmentInfo depthAttachment = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        depthAttachment.imageView = pImageView;
+        depthAttachment.imageLayout = layout;
+        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        depthAttachment.clearValue.depthStencil.depth = 0.f;
+
+        return depthAttachment;
+    }
+
+
     VkRenderingInfo RenderingInfo(const VkExtent2D& extent, const VkRenderingAttachmentInfo* pColorAttachment, const VkRenderingAttachmentInfo* pDepthAttachment) noexcept
     {
         VkRenderingInfo info = {

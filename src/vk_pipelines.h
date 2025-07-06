@@ -19,6 +19,7 @@ namespace vkutil
         void SetInputTopology(VkPrimitiveTopology topology) noexcept;
         void SetPolygonMode(VkPolygonMode mode) noexcept;
         void SetCullMode(VkCullModeFlags cullMode, VkFrontFace frontFace) noexcept;
+        void SetDepthTest(bool depthWriteEnable, VkCompareOp cmpOp) noexcept;
 
         void SetColorAttachmentFormat(VkFormat format) noexcept;
         void SetDepthAttachmentFormat(VkFormat format) noexcept;
