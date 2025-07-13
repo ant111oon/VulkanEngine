@@ -248,6 +248,7 @@ void VulkanEngine::Render() noexcept
     ENG_VK_CHECK(vkWaitForFences(m_pVkDevice, 1, &currFrameData.pVkRenderFence, true, waitRenderFenceTimeoutNs));
 	
     currFrameData.deletionQueue.Flush();
+    currFrameData.descriptorAllocator.ClearPools(m_pVkDevice);
 
     constexpr uint64_t acquireNextSwapChainImageTimeoutNs = 1'000'000'000;
 
@@ -354,6 +355,23 @@ void VulkanEngine::RenderBackground(VkCommandBuffer pCmdBuf) noexcept
 
 void VulkanEngine::RenderGeometry(VkCommandBuffer pCmdBuf) noexcept
 {
+	BufferHandle sceneDataBuffer = AllocateBuffer(sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+	//add it to the deletion queue of this frame so it gets deleted once its been used
+	GetCurrentFrameData().deletionQueue.PushDeletor([=, this]() {
+		BufferHandle buffer = sceneDataBuffer;
+        DestroyBuffer(buffer);
+	});
+
+	SceneData* pSceneUniformData = static_cast<SceneData*>(sceneDataBuffer.pAllocation->GetMappedData());
+	*pSceneUniformData = m_sceneData;
+
+	VkDescriptorSet pGlobalDescriptor = GetCurrentFrameData().descriptorAllocator.Allocate(m_pVkDevice, m_pSceneDataDescriptorLayout);
+
+	DescriptorWriter writer;
+	writer.WriteBuffer(0, sceneDataBuffer.pBuffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+	writer.UpdateSet(m_pVkDevice, pGlobalDescriptor);
+
     VkRenderingAttachmentInfo colorAttachment = vkinit::RenderingAttachmentInfo(m_rndImage.pImageView, std::nullopt, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     VkRenderingAttachmentInfo depthAttachment = vkinit::DepthAttachmentInfo(m_depthImage.pImageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
@@ -658,41 +676,48 @@ bool VulkanEngine::InitSyncStructures() noexcept
 
 bool VulkanEngine::InitDescriptors() noexcept
 {
-    std::array<DescriptorAllocator::PoolSizeRatio, 1> sizes =
+    std::array<DescriptorAllocatorGrowable::PoolSizeRatio, 1> sizes =
 	{
 		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1.f }
 	};
 
-	m_globalDescriptorAllocator.InitPool(m_pVkDevice, 10, sizes);
-
-    static constexpr uint32_t IMAGE_BINDING_IDX = 0;
-    static constexpr VkDescriptorType IMAGE_DESCR_TYPE = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	m_globalDescriptorAllocator.Init(m_pVkDevice, 10, sizes);
 
 	DescriptorLayoutBuilder builder;
-	builder.AddBinding(IMAGE_BINDING_IDX, IMAGE_DESCR_TYPE);
+	builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
 	m_pRndImageDescriptorLayout = builder.Build(m_pVkDevice, VK_SHADER_STAGE_COMPUTE_BIT);
 
     m_pRndImageDescriptors = m_globalDescriptorAllocator.Allocate(m_pVkDevice, m_pRndImageDescriptorLayout);	
 
-	VkDescriptorImageInfo imgInfo = {
-        .imageView = m_rndImage.pImageView,
-        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-    };
-	
-	VkWriteDescriptorSet rndImageWrite = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = m_pRndImageDescriptors,
-        .dstBinding = IMAGE_BINDING_IDX,
-        .descriptorCount = 1,
-        .descriptorType = IMAGE_DESCR_TYPE,
-        .pImageInfo = &imgInfo,
-    };
+    builder.Clear();
+    builder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    m_pSceneDataDescriptorLayout = builder.Build(m_pVkDevice, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
-	vkUpdateDescriptorSets(m_pVkDevice, 1, &rndImageWrite, 0, nullptr);
+	DescriptorWriter writer;
+    writer.WriteImage(0, m_rndImage.pImageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+
+    writer.UpdateSet(m_pVkDevice, m_pRndImageDescriptors);
+
+    for (size_t i = 0; i < FRAMES_DATA_INST_COUNT; ++i) {
+		std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> frameSizes = { 
+			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3 },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 },
+		};
+
+		m_framesData[i].descriptorAllocator = DescriptorAllocatorGrowable{};
+		m_framesData[i].descriptorAllocator.Init(m_pVkDevice, 1000, frameSizes);
+	}
 
 	m_mainDeletionQueue.PushDeletor([&]() {
-		m_globalDescriptorAllocator.DestroyPool(m_pVkDevice);
+        for (size_t i = 0; i < FRAMES_DATA_INST_COUNT; ++i) {
+            m_framesData[i].descriptorAllocator.DestroyPools(m_pVkDevice);
+        }
 
+		m_globalDescriptorAllocator.DestroyPools(m_pVkDevice);
+
+		vkDestroyDescriptorSetLayout(m_pVkDevice, m_pSceneDataDescriptorLayout, nullptr);
 		vkDestroyDescriptorSetLayout(m_pVkDevice, m_pRndImageDescriptorLayout, nullptr);
 	});
 

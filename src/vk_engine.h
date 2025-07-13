@@ -49,6 +49,7 @@ private:
 	    VkFence pVkRenderFence;
 
         DeletionQueue deletionQueue;
+        DescriptorAllocatorGrowable descriptorAllocator;
     };
 
     static constexpr size_t FRAMES_DATA_INST_COUNT = UINTMAX_C(2);
@@ -65,6 +66,16 @@ private:
         VkPipelineLayout layout;
 
         ComputePushConstants data;
+    };
+
+    struct SceneData
+    {
+        glm::mat4 viewMat;
+        glm::mat4 projMat;
+        glm::mat4 viewProjMat;
+        glm::vec4 ambientColor;
+        glm::vec4 sunLightDirectionAndPower;
+        glm::vec4 sunLightColor;
     };
 
 public:
@@ -147,7 +158,7 @@ private:
     float m_dynResScale = 1.f;
     VkFilter m_dynResCopyFilter = VK_FILTER_LINEAR;
 
-    DescriptorAllocator m_globalDescriptorAllocator;
+    DescriptorAllocatorGrowable m_globalDescriptorAllocator;
 
 	VkDescriptorSet m_pRndImageDescriptors = VK_NULL_HANDLE;
 	VkDescriptorSetLayout m_pRndImageDescriptorLayout = VK_NULL_HANDLE;
@@ -170,6 +181,9 @@ private:
     int32_t m_currMeshIdx = 2;
 
     std::vector<std::shared_ptr<MeshAsset>> m_testMeshes;
+
+    SceneData m_sceneData;
+    VkDescriptorSetLayout m_pSceneDataDescriptorLayout;
 
 	uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;

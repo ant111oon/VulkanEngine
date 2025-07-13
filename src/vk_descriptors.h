@@ -20,7 +20,7 @@ private:
 };
 
 
-class DescriptorAllocator final
+class DescriptorAllocatorGrowable final
 {
 public:
     struct PoolSizeRatio final
@@ -30,14 +30,39 @@ public:
     };
 
 public:
-    DescriptorAllocator() = default;
+    DescriptorAllocatorGrowable() = default;
 
-    void InitPool(VkDevice pDevice, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios) noexcept;
-    void ClearDescriptors(VkDevice pDevice) noexcept;
-    void DestroyPool(VkDevice pDevice) noexcept;
+    void Init(VkDevice pDevice, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios) noexcept;
+    void ClearPools(VkDevice pDevice) noexcept;
+    void DestroyPools(VkDevice pDevice) noexcept;
 
-    VkDescriptorSet Allocate(VkDevice pDevice, VkDescriptorSetLayout pLayout);
+    VkDescriptorSet Allocate(VkDevice pDevice, VkDescriptorSetLayout pLayout, void* pNext = nullptr) noexcept;
 
 private:
-    VkDescriptorPool m_pPool;
+    VkDescriptorPool GetPool(VkDevice pDevice) noexcept;
+    VkDescriptorPool CreatePool(VkDevice pDevice, uint32_t setsCount, std::span<PoolSizeRatio> poolRatios) noexcept;
+
+private:
+    std::vector<PoolSizeRatio> m_ratios;
+
+    std::vector<VkDescriptorPool> m_fullPools;
+    std::vector<VkDescriptorPool> m_readyPools;
+    
+    uint32_t m_setsPerPool;
+};
+
+
+class DescriptorWriter final
+{
+public:
+    void WriteImage(uint32_t binding, VkImageView pImage, VkSampler pSampler, VkImageLayout pLayout, VkDescriptorType type) noexcept;
+    void WriteBuffer(uint32_t binding, VkBuffer pBuffer, size_t size, size_t offset, VkDescriptorType type) noexcept;
+
+    void Clear() noexcept;
+    void UpdateSet(VkDevice device, VkDescriptorSet set) noexcept;
+
+private:
+    std::deque<VkDescriptorImageInfo> m_imageInfos;
+    std::deque<VkDescriptorBufferInfo> m_bufferInfos;
+    std::vector<VkWriteDescriptorSet> m_writes;
 };
