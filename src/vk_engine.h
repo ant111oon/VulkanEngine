@@ -102,6 +102,7 @@ private:
     void Render() noexcept;
     void RenderBackground(VkCommandBuffer pCmdBuf) noexcept;
     void RenderGeometry(VkCommandBuffer pCmdBuf) noexcept;
+    void RenderDbgUI() noexcept;
     void RenderImGui(VkCommandBuffer pCmdBuf, VkImageView pTargetImageView) noexcept;
 
     bool InitVulkan() noexcept;

@@ -135,9 +135,9 @@ add_custom_command(TARGET engine POST_BUILD
 )
 
 if (${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "AMD64")
-    set(ENG_GLSL_VALIDATOR $ENV{VULKAN_SDK}/Bin/glslangValidator.exe)
+    set(ENG_GLSL_VALIDATOR $ENV{VULKAN_SDK}/Bin/glslc.exe)
 else()
-    set(ENG_GLSL_VALIDATOR $ENV{VULKAN_SDK}/Bin32/glslangValidator.exe)
+    set(ENG_GLSL_VALIDATOR $ENV{VULKAN_SDK}/Bin32/glslc.exe)
 endif()
 
 set(ENG_SHADERS_DIR ${PROJECT_SOURCE_DIR}/shaders)
@@ -155,11 +155,11 @@ foreach(SHADER_SRC_FILE ${SHADER_SRC_FILES})
     
     set(SHADER_SPIRV ${ENG_SHADERS_BIN_DIR}/${FILE_NAME}.spv)
     
-    message(STATUS "${SHADER_SRC_FILE} -> ${SHADER_SPIRV}")
+    message(STATUS "${SHADER_SRC_FILE} will be compiled to ${SHADER_SPIRV}")
     
     add_custom_command(
         OUTPUT ${SHADER_SPIRV}
-        COMMAND ${ENG_GLSL_VALIDATOR} -V ${SHADER_SRC_FILE} -o ${SHADER_SPIRV}
+        COMMAND ${ENG_GLSL_VALIDATOR} ${SHADER_SRC_FILE} -o ${SHADER_SPIRV}
         DEPENDS ${SHADER_SRC_FILE})
     list(APPEND SPIRV_BINARY_FILES ${SHADER_SPIRV})
 endforeach(SHADER_SRC_FILE)

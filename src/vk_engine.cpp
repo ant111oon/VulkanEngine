@@ -183,49 +183,9 @@ void VulkanEngine::Run() noexcept
 
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplSDL2_NewFrame();
+        
         ImGui::NewFrame();
-
-        if (ImGui::Begin("Debug info")) {
-            ImGui::SliderInt("Mesh Index", &m_currMeshIdx, 0, 2);
-            
-			ComputeEffect& selected = m_backgroundEffects[m_currBackgroundEffect];
-		
-			ImGui::Text("Selected effect: %s", selected.name.data());
-			ImGui::SliderInt("Effect Index", &m_currBackgroundEffect, 0, m_backgroundEffects.size() - 1);
-		
-            for (size_t i = 0; i < std::size(selected.data.data); ++i) {
-                glm::vec4& data = selected.data.data[i];
-                
-                char label[64] = {};
-                sprintf_s(label, "data %u", i);
-
-                ImGui::InputFloat4(label,(float*)&data.x);
-            }
-
-            ImGui::SliderFloat("Dynamic Resolution Scale", &m_dynResScale, 0.1f, 1.f);
-
-            static const char* dynResCopyFileters[] = { "Linear", "Nearest" };
-            static const char* pCurrDynResCopyFileter = dynResCopyFileters[0];
-            if (ImGui::BeginCombo("Dynamic Resolution Copy Filter", pCurrDynResCopyFileter)) {
-                for (size_t i = 0; i < IM_ARRAYSIZE(dynResCopyFileters); ++i) {
-                    const bool isSelected = (pCurrDynResCopyFileter == dynResCopyFileters[i]);
-                    
-                    if (ImGui::Selectable(dynResCopyFileters[i], isSelected)) {
-                        pCurrDynResCopyFileter = dynResCopyFileters[i];
-                    }
-                    
-                    if (isSelected) {
-                        ImGui::SetItemDefaultFocus();
-                    }
-                }
-
-                m_dynResCopyFilter = pCurrDynResCopyFileter == dynResCopyFileters[0] ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
-
-                ImGui::EndCombo();
-            }
-		}
-		ImGui::End();
-
+        RenderDbgUI();
         ImGui::Render();
 
         Render();
@@ -416,6 +376,52 @@ void VulkanEngine::RenderGeometry(VkCommandBuffer pCmdBuf) noexcept
 	vkCmdDrawIndexed(pCmdBuf, m_testMeshes[m_currMeshIdx]->surfaces[0].count, 1, m_testMeshes[m_currMeshIdx]->surfaces[0].startIndex, 0, 0);
 
 	vkCmdEndRendering(pCmdBuf);
+}
+
+
+void VulkanEngine::RenderDbgUI() noexcept
+{
+    if (ImGui::Begin("Debug info")) {
+        ImGui::SliderInt("Mesh Index", &m_currMeshIdx, 0, 2);
+            
+		ComputeEffect& selected = m_backgroundEffects[m_currBackgroundEffect];
+		
+		ImGui::Text("Selected effect: %s", selected.name.data());
+		ImGui::SliderInt("Effect Index", &m_currBackgroundEffect, 0, m_backgroundEffects.size() - 1);
+		
+        for (size_t i = 0; i < std::size(selected.data.data); ++i) {
+            glm::vec4& data = selected.data.data[i];
+                
+            char label[64] = {};
+            sprintf_s(label, "data %u", i);
+
+            ImGui::InputFloat4(label,(float*)&data.x);
+        }
+
+        ImGui::SliderFloat("Dynamic Resolution Scale", &m_dynResScale, 0.1f, 1.f);
+
+        static const char* dynResCopyFileters[] = { "Linear", "Nearest" };
+        static const char* pCurrDynResCopyFileter = dynResCopyFileters[0];
+        if (ImGui::BeginCombo("Dynamic Resolution Copy Filter", pCurrDynResCopyFileter)) {
+            for (size_t i = 0; i < IM_ARRAYSIZE(dynResCopyFileters); ++i) {
+                const bool isSelected = (pCurrDynResCopyFileter == dynResCopyFileters[i]);
+                    
+                if (ImGui::Selectable(dynResCopyFileters[i], isSelected)) {
+                    pCurrDynResCopyFileter = dynResCopyFileters[i];
+                }
+                    
+                if (isSelected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+
+            m_dynResCopyFilter = pCurrDynResCopyFileter == dynResCopyFileters[0] ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::End();
+	}
 }
 
 
