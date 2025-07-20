@@ -126,8 +126,11 @@ private:
     bool InitImGui() noexcept;
     void ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&& function) const noexcept;
 
-    BufferHandle AllocateBuffer(size_t size, VkBufferUsageFlags bufUsage, VmaMemoryUsage memUsage) const noexcept;
+    BufferHandle CreateBuffer(size_t size, VkBufferUsageFlags bufUsage, VmaMemoryUsage memUsage) const noexcept;
     void DestroyBuffer(BufferHandle& buffer) const noexcept;
+
+    ImageHandle CreateImage(const VkExtent3D& extent, VkFormat format, VkImageUsageFlags usage, const void* pData = nullptr, bool mipmapped = false);
+    void DestroyImage(ImageHandle& image);
 
     FrameData& GetCurrentFrameData() noexcept { return m_framesData[m_frameNumber % FRAMES_DATA_INST_COUNT]; }
 
@@ -161,10 +164,10 @@ private:
 
     DescriptorAllocatorGrowable m_globalDescriptorAllocator;
 
-	VkDescriptorSet m_pRndImageDescriptors = VK_NULL_HANDLE;
-	VkDescriptorSetLayout m_pRndImageDescriptorLayout = VK_NULL_HANDLE;
+	VkDescriptorSet m_pComputeBackgroundDescriptors = VK_NULL_HANDLE;
+	VkDescriptorSetLayout m_pComputeBackgroundDescriptorLayout = VK_NULL_HANDLE;
 
-    VkPipelineLayout m_pGradientPipelineLayout = VK_NULL_HANDLE;;
+    VkPipelineLayout m_pComputeBackgroundPipelineLayout = VK_NULL_HANDLE;;
 
     VkPipelineLayout m_pMeshPipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_pMeshPipeline = VK_NULL_HANDLE;
@@ -185,6 +188,16 @@ private:
 
     SceneData m_sceneData;
     VkDescriptorSetLayout m_pSceneDataDescriptorLayout;
+
+    VkDescriptorSetLayout m_singleImageDescriptorLayout;
+
+    ImageHandle m_whiteImage;
+	ImageHandle m_blackImage;
+	ImageHandle m_greyImage;
+	ImageHandle m_checkerboardImage;
+
+	VkSampler m_nearestSampler;
+    VkSampler m_linearSampler;
 
 	uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;
