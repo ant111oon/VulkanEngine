@@ -37,6 +37,7 @@ static const std::filesystem::path ENG_MESH_VS_PATH = "../shaders/bin/mesh.vert.
 static const std::filesystem::path ENG_MESH_FS_PATH = "../shaders/bin/mesh.frag.spv";
 
 static const std::filesystem::path ENG_BASIC_GLTF_MESH_PATH = "../assets/basicmesh.glb";
+static const std::filesystem::path ENG_STRUCTURE_GLTF_MESH_PATH = "../assets/structure.glb";
 
 
 #define ENG_RND_BACKGROUND_VERSION_CLEAR 0
@@ -222,9 +223,14 @@ void VulkanEngine::Init() noexcept
     InitDefaultData();
 
     m_mainCamera.velocity = glm::vec3(0.f);
-	m_mainCamera.position = glm::vec3(0.f, 0.f, 5.f);
+	m_mainCamera.position = glm::vec3(30.f, 0.f, -85.f);
     m_mainCamera.pitch = 0.f;
     m_mainCamera.yaw = 0.f;
+
+    auto structureFile = LoadGLTF(this, ENG_STRUCTURE_GLTF_MESH_PATH);
+    ENG_ASSERT(structureFile.has_value());
+
+    m_loadedScenes["structure"] = structureFile.value();
 
     m_isInitialized = true;
 }
@@ -237,6 +243,8 @@ void VulkanEngine::Terminate() noexcept
     }
 
     vkDeviceWaitIdle(m_pVkDevice);
+
+    m_loadedScenes.clear();
 
     for (size_t i = 0; i < FRAMES_DATA_INST_COUNT; ++i) {
         vkDestroyCommandPool(m_pVkDevice, m_framesData[i].pVkCmdPool, nullptr);
@@ -548,9 +556,11 @@ void VulkanEngine::RenderDbgUI() noexcept
             ImGui::EndCombo();
         }
 
+        ImGui::NewLine();
         ImGui::Text("Is Fly Camera (F5):");
         ImGui::SameLine();
         ImGui::TextColored(m_isFlyCameraMode ? ImVec4(0.f, 1.f, 0.f, 1.f) : ImVec4(1.f, 0.f, 0.f, 1.f), m_isFlyCameraMode ? "true" : "false");
+        ImGui::SliderFloat("Camera Speed", &m_mainCamera.speed, 0.f, 10.f);
 
         ImGui::End();
 	}
@@ -931,8 +941,6 @@ bool VulkanEngine::InitBackgroundPipelines() noexcept
 
 void VulkanEngine::InitDefaultData() noexcept
 {
-    m_testMeshes = LoadGLTFMeshes(*this, ENG_BASIC_GLTF_MESH_PATH).value();
-
     const uint32_t whiteColorU32 = glm::packUnorm4x8(glm::vec4(1.f));
 	m_whiteImage = CreateImage(VkExtent3D{ 1, 1, 1 }, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, (const void*)&whiteColorU32);
 
@@ -984,26 +992,7 @@ void VulkanEngine::InitDefaultData() noexcept
 
 	m_defaultData = m_metalRoughMaterial.WriteMaterial(m_pVkDevice, MaterialPass::OPAQUE, materialResources, m_globalDescriptorAllocator);
 
-    for (std::shared_ptr<MeshAsset>& pMesh : m_testMeshes) {
-		std::shared_ptr<MeshNode> newNode = std::make_shared<MeshNode>();
-		newNode->pMesh = pMesh;
-
-		newNode->localTrs = glm::mat4{ 1.f };
-		newNode->worldTrs = glm::mat4{ 1.f };
-
-		for (GeoSurface& surf : newNode->pMesh->surfaces) {
-			surf.material = std::make_shared<GLTFMaterial>(m_defaultData);
-		}
-
-		m_loadedNodes[pMesh->name] = std::move(newNode);
-	}
-
 	m_mainDeletionQueue.PushDeletor([&]() {
-        for (std::shared_ptr<MeshAsset>& pMesh : m_testMeshes) {
-            DestroyBuffer(pMesh->meshBuffers.idxBuff);
-            DestroyBuffer(pMesh->meshBuffers.vertBuff);
-        }
-
         vkDestroySampler(m_pVkDevice, m_nearestSampler, nullptr);
         vkDestroySampler(m_pVkDevice, m_linearSampler, nullptr);
 
@@ -1102,14 +1091,7 @@ void VulkanEngine::UpdateScene()
 
     m_mainDrawContext.opaqueSurfaces.clear();
 
-	m_loadedNodes["Suzanne"]->Render(glm::identity<glm::mat4>(), m_mainDrawContext);
-
-    for (int32_t x = -3; x <= 3; ++x) {
-		const glm::mat4 scale = glm::scale(glm::vec3(0.2f));
-		const glm::mat4 translation = glm::translate(glm::vec3(x, 1.f, 0.f));
-
-		m_loadedNodes["Cube"]->Render(translation * scale, m_mainDrawContext);
-	}
+    m_loadedScenes["structure"]->Render(glm::identity<glm::mat4>(), m_mainDrawContext);
 
     const glm::mat4 viewMat = m_mainCamera.GetViewMatrix();
     glm::mat4 projMat = glm::perspective(glm::radians(70.f), (float)m_windowExtent.width / (float)m_windowExtent.height, 10000.f, 0.1f);

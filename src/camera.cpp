@@ -8,26 +8,24 @@
 
 void Camera::ProcessSDLEvent(SDL_Event& e)
 {
-    constexpr float RAW_SPEED_VALUE = 0.5f;
-
     if (e.type == SDL_KEYDOWN) {
         if (e.key.keysym.sym == SDLK_w) { 
-            velocity.z = -RAW_SPEED_VALUE;
+            velocity.z = -speed;
         }
         if (e.key.keysym.sym == SDLK_s) {
-            velocity.z = RAW_SPEED_VALUE;
+            velocity.z = speed;
         }
         if (e.key.keysym.sym == SDLK_a) {
-            velocity.x = -RAW_SPEED_VALUE;
+            velocity.x = -speed;
         }
         if (e.key.keysym.sym == SDLK_d) {
-            velocity.x = RAW_SPEED_VALUE;
+            velocity.x = speed;
         }
         if (e.key.keysym.sym == SDLK_e) {
-            velocity.y = RAW_SPEED_VALUE;
+            velocity.y = speed;
         }
         if (e.key.keysym.sym == SDLK_q) {
-            velocity.y = -RAW_SPEED_VALUE;
+            velocity.y = -speed;
         }
     }
 

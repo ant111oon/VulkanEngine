@@ -18,4 +18,5 @@ struct Camera
     glm::vec3 position;
     float pitch = 0.f;
     float yaw = 0.f;
+    float speed = 1.f;
 };

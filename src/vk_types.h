@@ -102,20 +102,20 @@ struct Node : public IRenderable
     {
         worldTrs = parentTrs * localTrs;
         
-        for (std::shared_ptr<Node>& pChild : childrens) {
+        for (std::shared_ptr<Node>& pChild : children) {
             pChild->RefreshTransform(worldTrs);
         }
     }
 
     virtual void Render(const glm::mat4& topMatrix, RenderContext& ctx) override
     {
-        for (std::shared_ptr<Node>& pChild : childrens) {
+        for (std::shared_ptr<Node>& pChild : children) {
             pChild->Render(topMatrix, ctx);
         }
     }
 
     std::weak_ptr<Node> pParent;
-    std::vector<std::shared_ptr<Node>> childrens;
+    std::vector<std::shared_ptr<Node>> children;
 
     glm::mat4 localTrs;
     glm::mat4 worldTrs;

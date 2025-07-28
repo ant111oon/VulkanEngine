@@ -145,7 +145,7 @@ public:
 
     MeshGpuBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices) const noexcept;
 
-private:
+public:
     VulkanEngine() = default;
     ~VulkanEngine();
 
@@ -235,13 +235,11 @@ public:
     std::vector<ComputeEffect> m_backgroundEffects;
     int32_t m_currBackgroundEffect = 0;
 
-    std::vector<std::shared_ptr<MeshAsset>> m_testMeshes;
-
     SceneData m_sceneData;
     VkDescriptorSetLayout m_pSceneDataDescriptorLayout;
 
     RenderContext m_mainDrawContext;
-    std::unordered_map<std::string, std::shared_ptr<Node>> m_loadedNodes;
+    std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> m_loadedScenes;
 
     VkDescriptorSetLayout m_singleImageDescriptorLayout;
 

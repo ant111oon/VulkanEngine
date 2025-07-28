@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "core.h"
+
 #include "vk_loader.h"
 #include "vk_engine.h"
 #include "vk_initializers.h"
@@ -13,124 +15,326 @@
 #include <stb_image.h>
 
 
-    std::optional<std::vector<std::shared_ptr<MeshAsset>>> LoadGLTFMeshes(VulkanEngine& engine, const std::filesystem::path& filepath)
-    {
-        using namespace fastgltf;
+static VkFilter ExtractFilter(fastgltf::Filter filter)
+{
+    switch (filter) {
+        case fastgltf::Filter::Nearest:
+        case fastgltf::Filter::NearestMipMapNearest:
+        case fastgltf::Filter::NearestMipMapLinear:
+            return VK_FILTER_NEAREST;
+        case fastgltf::Filter::Linear:
+        case fastgltf::Filter::LinearMipMapNearest:
+        case fastgltf::Filter::LinearMipMapLinear:
+        default:
+            return VK_FILTER_LINEAR;
+    }
+}
 
-        Accessor accessor;
-        Expected<GltfDataBuffer> data = GltfDataBuffer::FromPath(filepath);
-        
-        if (!data) {
-            const std::string filepathStr = filepath.string();
-            fmt::print("Failed to load GLTF {}: {}\n", filepathStr.c_str(), getErrorName(data.error()).data());
-            
-            return std::nullopt;
-        }
+static VkSamplerMipmapMode ExtractMipmapMode(fastgltf::Filter filter)
+{
+    switch (filter) {
+        case fastgltf::Filter::NearestMipMapNearest:
+        case fastgltf::Filter::LinearMipMapNearest:
+            return VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        case fastgltf::Filter::NearestMipMapLinear:
+        case fastgltf::Filter::LinearMipMapLinear:
+        default:
+            return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    }
+}
 
-        constexpr Options gltfOptions = Options::LoadExternalBuffers;
 
-        Asset gltf;
-        Parser parser;
+void LoadedGLTF::Render(const glm::mat4& topMatrix, RenderContext& ctx)
+{
+    for (std::shared_ptr<Node>& pNode : topNodes) {
+        pNode->Render(topMatrix, ctx);
+    }
+}
 
-        auto load = parser.loadGltfBinary(data.get(), filepath.parent_path(), gltfOptions);
+
+void LoadedGLTF::ClearAll()
+{
+    VkDevice dv = pCreator->m_pVkDevice;
+
+    descriptorPool.DestroyPools(dv);
+    pCreator->DestroyBuffer(materialDataBuffer);
+
+    for (auto& [k, v] : meshes) {
+		pCreator->DestroyBuffer(v->meshBuffers.idxBuff);
+		pCreator->DestroyBuffer(v->meshBuffers.vertBuff);
+    }
+
+	for (VkSampler& sampler : samplers) {
+		vkDestroySampler(dv, sampler, nullptr);
+    }
+}
+
+
+std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VulkanEngine* pEngine, const std::filesystem::path& filepath)
+{
+    fmt::print("Loading GLTF: {}\n", filepath.string().c_str());
+
+    std::shared_ptr<LoadedGLTF> pScene = std::make_shared<LoadedGLTF>();
+    pScene->pCreator = pEngine;
+    LoadedGLTF& file = *pScene;
+
+    fastgltf::Parser parser {};
+
+    constexpr fastgltf::Options gltfOptions = fastgltf::Options::DontRequireValidAssetMember 
+        | fastgltf::Options::AllowDouble
+        | fastgltf::Options::LoadExternalBuffers;
+
+    auto dataExp = fastgltf::GltfDataBuffer::FromPath(filepath);
+    ENG_ASSERT_MSG(dataExp, "GLTF {} error: {}", filepath.string().c_str(), fastgltf::getErrorMessage(dataExp.error()))
+
+    fastgltf::GltfDataBuffer& data = dataExp.get();
+
+    fastgltf::Asset gltf;
+
+    auto type = fastgltf::determineGltfFileType(data);
+    if (type == fastgltf::GltfType::glTF) {
+        auto load = parser.loadGltf(data, filepath.parent_path(), gltfOptions);
         if (load) {
             gltf = std::move(load.get());
         } else {
-            const std::string filepathStr = filepath.string();
-            fmt::print("Failed to load GLTF {}: {}\n", filepathStr.c_str(), getErrorName(data.error()).data());
-            
+            fmt::println(stderr, "Failed to load glTF: {}", fastgltf::getErrorMessage(load.error()).data());
             return std::nullopt;
         }
+    } else if (type == fastgltf::GltfType::GLB) {
+        auto load = parser.loadGltfBinary(data, filepath.parent_path(), gltfOptions);
+        if (load) {
+            gltf = std::move(load.get());
+        } else {
+            fmt::println(stderr, "Failed to load glTF: {}", fastgltf::getErrorMessage(load.error()).data());
+            return std::nullopt;
+        }
+    } else {
+        fmt::println(stderr, "Failed to determine GLTF container");
+        return std::nullopt;
+    }
 
-        std::vector<std::shared_ptr<MeshAsset>> meshes;
+    // we can stimate the descriptors we will need accurately
+    std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 }
+    };
 
-        std::vector<uint32_t> indices;
-        std::vector<Vertex> vertices;
+    file.descriptorPool.Init(pEngine->m_pVkDevice, gltf.materials.size(), sizes);
 
-        for (fastgltf::Mesh& mesh : gltf.meshes) {
-            MeshAsset newMesh;
+    for (fastgltf::Sampler& sampler : gltf.samplers) {
+        VkSamplerCreateInfo sampl = {};
+        sampl.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampl.maxLod = VK_LOD_CLAMP_NONE;
+        sampl.minLod = 0;
 
-            newMesh.name = mesh.name;
+        sampl.magFilter = ExtractFilter(sampler.magFilter.value_or(fastgltf::Filter::Nearest));
+        sampl.minFilter = ExtractFilter(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
 
-            indices.clear();
-            vertices.clear();
+        sampl.mipmapMode= ExtractMipmapMode(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
 
-            for (auto&& p : mesh.primitives) {
-                GeoSurface newSurface;
-                newSurface.startIndex = (uint32_t)indices.size();
-                newSurface.count = (uint32_t)gltf.accessors[p.indicesAccessor.value()].count;
+        VkSampler newSampler;
+        vkCreateSampler(pEngine->m_pVkDevice, &sampl, nullptr, &newSampler);
 
-                size_t initialVtx = vertices.size();
+        file.samplers.push_back(newSampler);
+    }
+    
+    std::vector<ImageHandle> images;
+    images.reserve(gltf.images.size());
 
-                // load indexes
-                {
-                    fastgltf::Accessor& indexaccessor = gltf.accessors[p.indicesAccessor.value()];
-                    indices.reserve(indices.size() + indexaccessor.count);
+    for (fastgltf::Image& image : gltf.images) {  
+        images.push_back(pEngine->m_checkerboardImage);
+    }
 
-                    fastgltf::iterateAccessor<std::uint32_t>(gltf, indexaccessor,
-                        [&](std::uint32_t idx) {
-                            indices.push_back(idx + initialVtx);
-                        });
-                }
+    file.materialDataBuffer = pEngine->CreateBuffer(sizeof(GLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    
+    size_t dataIndex = 0;
+    
+    GLTFMetallic_Roughness::MaterialConstants* pSceneMaterialConstants =
+        (GLTFMetallic_Roughness::MaterialConstants*)file.materialDataBuffer.allocationInfo.pMappedData;
 
-                // load vertex positions
-                {
-                    fastgltf::Accessor& posAccessor = gltf.accessors[p.findAttribute("POSITION")->accessorIndex];
-                    vertices.resize(vertices.size() + posAccessor.count);
+    std::vector<std::shared_ptr<GLTFMaterial>> materials;
+    materials.reserve(gltf.materials.size());
 
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor,
-                        [&](glm::vec3 v, size_t index) {
-                            Vertex newvtx;
-                            newvtx.position = v;
-                            newvtx.normal = { 1, 0, 0 };
-                            newvtx.color = glm::vec4 { 1.f };
-                            newvtx.uvX = 0;
-                            newvtx.uvY = 0;
-                            vertices[initialVtx + index] = newvtx;
-                        });
-                }
+    for (fastgltf::Material& mat : gltf.materials) {
+        std::shared_ptr<GLTFMaterial> newMat = std::make_shared<GLTFMaterial>();
+        materials.push_back(newMat);
 
-                // load vertex normals
-                auto normals = p.findAttribute("NORMAL");
-                if (normals != p.attributes.end()) {
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).accessorIndex],
-                        [&](glm::vec3 v, size_t index) {
-                            vertices[initialVtx + index].normal = glm::normalize(v);
-                        });
-                }
+        file.materials[mat.name.c_str()] = newMat;
 
-                // load UVs
-                auto uv = p.findAttribute("TEXCOORD_0");
-                if (uv != p.attributes.end()) {
-                    fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).accessorIndex],
-                        [&](glm::vec2 v, size_t index) {
-                            vertices[initialVtx + index].uvX = v.x;
-                            vertices[initialVtx + index].uvY = v.y;
-                        });
-                }
+        GLTFMetallic_Roughness::MaterialConstants constants;
+        constants.colorFactors.x = mat.pbrData.baseColorFactor[0];
+        constants.colorFactors.y = mat.pbrData.baseColorFactor[1];
+        constants.colorFactors.z = mat.pbrData.baseColorFactor[2];
+        constants.colorFactors.w = mat.pbrData.baseColorFactor[3];
 
-                // load vertex colors
-                auto colors = p.findAttribute("COLOR_0");
-                if (colors != p.attributes.end()) {
-                    fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*colors).accessorIndex],
-                        [&](glm::vec4 v, size_t index) {
-                            vertices[initialVtx + index].color = v;
-                        });
-                }
-                newMesh.surfaces.push_back(newSurface);
+        constants.metallicRoughnessFactors.x = mat.pbrData.metallicFactor;
+        constants.metallicRoughnessFactors.y = mat.pbrData.roughnessFactor;
+        // write material parameters to buffer
+        pSceneMaterialConstants[dataIndex] = constants;
+
+        const MaterialPass passType = mat.alphaMode == fastgltf::AlphaMode::Blend ? MaterialPass::TRANSPARENT : MaterialPass::OPAQUE;
+
+        GLTFMetallic_Roughness::MaterialResources materialResources;
+        
+        materialResources.colorImage = pEngine->m_whiteImage;
+        materialResources.colorSampler = pEngine->m_linearSampler;
+        materialResources.metalRoughImage = pEngine->m_whiteImage;
+        materialResources.metalRoughSampler = pEngine->m_linearSampler;
+
+        materialResources.dataBuffer = file.materialDataBuffer.pBuffer;
+        materialResources.dataBufferOffset = dataIndex * sizeof(GLTFMetallic_Roughness::MaterialConstants);
+
+        if (mat.pbrData.baseColorTexture.has_value()) {
+            const size_t img = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
+            const size_t sampler = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
+
+            materialResources.colorImage = images[img];
+            materialResources.colorSampler = file.samplers[sampler];
+        }
+        
+        newMat->data = pEngine->m_metalRoughMaterial.WriteMaterial(pEngine->m_pVkDevice, passType, materialResources, file.descriptorPool);
+
+        ++dataIndex;
+    }
+    
+    std::vector<std::shared_ptr<MeshAsset>> meshes;
+    meshes.reserve(gltf.meshes.size());
+
+    std::vector<uint32_t> indices;
+    std::vector<Vertex> vertices;
+
+    for (const fastgltf::Mesh& mesh : gltf.meshes) {
+        std::shared_ptr<MeshAsset> newmesh = std::make_shared<MeshAsset>();
+        meshes.push_back(newmesh);
+
+        file.meshes[mesh.name.c_str()] = newmesh;
+        newmesh->name = mesh.name;
+
+        indices.clear();
+        vertices.clear();
+
+        for (const fastgltf::Primitive& p : mesh.primitives) {
+            GeoSurface newSurface;
+            newSurface.startIndex = (uint32_t)indices.size();
+            newSurface.count = (uint32_t)gltf.accessors[p.indicesAccessor.value()].count;
+
+            size_t initialVtx = vertices.size();
+
+            {
+                fastgltf::Accessor& indexaccessor = gltf.accessors[p.indicesAccessor.value()];
+                indices.reserve(indices.size() + indexaccessor.count);
+
+                fastgltf::iterateAccessor<std::uint32_t>(gltf, indexaccessor,
+                    [&](std::uint32_t idx) {
+                        indices.push_back(idx + initialVtx);
+                    });
             }
 
-            // display the vertex normals
-            constexpr bool overrideColors = false;
-            if (overrideColors) {
-                for (Vertex& vtx : vertices) {
-                    vtx.color = glm::vec4(vtx.normal, 1.f);
-                }
-            }
-            newMesh.meshBuffers = engine.UploadMesh(indices, vertices);
+            {
+                fastgltf::Accessor& posAccessor = gltf.accessors[p.findAttribute("POSITION")->accessorIndex];
+                vertices.resize(vertices.size() + posAccessor.count);
 
-            meshes.emplace_back(std::make_shared<MeshAsset>(std::move(newMesh)));
+                fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor,
+                    [&](glm::vec3 v, size_t index) {
+                        Vertex newvtx;
+                        newvtx.position = v;
+                        newvtx.normal = glm::vec3(1, 0, 0);
+                        newvtx.color = glm::vec4(1.f);
+                        newvtx.uvX = 0;
+                        newvtx.uvY = 0;
+                        vertices[initialVtx + index] = newvtx;
+                    });
+            }
+
+            auto normals = p.findAttribute("NORMAL");
+            if (normals != p.attributes.end()) {
+                fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[normals->accessorIndex],
+                    [&](glm::vec3 v, size_t index) {
+                        vertices[initialVtx + index].normal = v;
+                    });
+            }
+
+            auto uv = p.findAttribute("TEXCOORD_0");
+            if (uv != p.attributes.end()) {
+                fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex],
+                    [&](glm::vec2 v, size_t index) {
+                        vertices[initialVtx + index].uvX = v.x;
+                        vertices[initialVtx + index].uvY = v.y;
+                    });
+            }
+
+            auto colors = p.findAttribute("COLOR_0");
+            if (colors != p.attributes.end()) {
+                fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[colors->accessorIndex],
+                    [&](glm::vec4 v, size_t index) {
+                        vertices[initialVtx + index].color = v;
+                    });
+            }
+
+            if (p.materialIndex.has_value()) {
+                newSurface.material = materials[p.materialIndex.value()];
+            } else {
+                newSurface.material = materials[0];
+            }
+
+            newmesh->surfaces.push_back(newSurface);
         }
 
-        return meshes;
+        newmesh->meshBuffers = pEngine->UploadMesh(indices, vertices);
     }
+
+    std::vector<std::shared_ptr<Node>> nodes;
+    nodes.reserve(gltf.nodes.size());
+
+    for (const fastgltf::Node& node : gltf.nodes) {
+        std::shared_ptr<Node> newNode;
+
+        if (node.meshIndex.has_value()) {
+            newNode = std::make_shared<MeshNode>();
+            static_cast<MeshNode*>(newNode.get())->pMesh = meshes[node.meshIndex.value()];
+        } else {
+            newNode = std::make_shared<Node>();
+        }
+
+        nodes.push_back(newNode);
+        file.nodes[node.name.c_str()];
+
+        std::visit(fastgltf::visitor { 
+            [&](const fastgltf::math::fmat4x4& matrix) {
+                memcpy(&newNode->localTrs, matrix.data(), sizeof(matrix));
+            },
+            [&](const fastgltf::TRS& transform) {
+                const glm::vec3 tl(transform.translation[0], transform.translation[1], transform.translation[2]);
+                const glm::quat rot(transform.rotation[3], transform.rotation[0], transform.rotation[1], transform.rotation[2]);
+                const glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
+                
+                const glm::mat4 tm = glm::translate(glm::identity<glm::mat4>(), tl);
+                const glm::mat4 rm = glm::toMat4(rot);
+                const glm::mat4 sm = glm::scale(glm::identity<glm::mat4>(), sc);
+                
+                newNode->localTrs = tm * rm * sm;
+            }
+        }, node.transform);
+    }
+
+    for (size_t i = 0; i < gltf.nodes.size(); ++i) {
+        fastgltf::Node& node = gltf.nodes[i];
+        std::shared_ptr<Node>& pSceneNode = nodes[i];
+
+        for (size_t childIdx : node.children) {
+            pSceneNode->children.push_back(nodes[childIdx]);
+            nodes[childIdx]->pParent = pSceneNode;
+        }
+    }
+
+    for (std::shared_ptr<Node>& pNode : nodes) {
+        if (pNode->pParent.lock() == nullptr) {
+            file.topNodes.push_back(pNode);
+            pNode->RefreshTransform(glm::identity<glm::mat4>());
+        }
+    }
+
+    return pScene;
+}
