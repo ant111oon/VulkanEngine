@@ -4,6 +4,8 @@
 #include "vk_descriptors.h"
 #include "vk_loader.h"
 
+#include "camera.h"
+
 #include <array>
 #include <deque>
 
@@ -172,7 +174,6 @@ private:
 
     bool InitPipelines() noexcept;
     bool InitBackgroundPipelines() noexcept;
-    bool InitMeshPipeline() noexcept;
 
     void InitDefaultData() noexcept;
 
@@ -221,11 +222,7 @@ public:
 
 	VkDescriptorSet m_pComputeBackgroundDescriptors = VK_NULL_HANDLE;
 	VkDescriptorSetLayout m_pComputeBackgroundDescriptorLayout = VK_NULL_HANDLE;
-
-    VkPipelineLayout m_pComputeBackgroundPipelineLayout = VK_NULL_HANDLE;;
-
-    VkPipelineLayout m_pMeshPipelineLayout = VK_NULL_HANDLE;
-    VkPipeline m_pMeshPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_pComputeBackgroundPipelineLayout = VK_NULL_HANDLE;
 
     // immediate submit structures
     VkFence m_pImmFence;
@@ -237,7 +234,6 @@ public:
 
     std::vector<ComputeEffect> m_backgroundEffects;
     int32_t m_currBackgroundEffect = 0;
-    int32_t m_currMeshIdx = 2;
 
     std::vector<std::shared_ptr<MeshAsset>> m_testMeshes;
 
@@ -260,8 +256,11 @@ public:
 	VkSampler m_nearestSampler;
     VkSampler m_linearSampler;
 
+    Camera m_mainCamera;
+
 	uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;
+    bool m_isFlyCameraMode = false;
 	bool m_needRender = true;
 	bool m_needResizeSwapChain = false;
 };

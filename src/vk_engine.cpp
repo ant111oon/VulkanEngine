@@ -221,6 +221,11 @@ void VulkanEngine::Init() noexcept
 
     InitDefaultData();
 
+    m_mainCamera.velocity = glm::vec3(0.f);
+	m_mainCamera.position = glm::vec3(0.f, 0.f, 5.f);
+    m_mainCamera.pitch = 0.f;
+    m_mainCamera.yaw = 0.f;
+
     m_isInitialized = true;
 }
 
@@ -282,11 +287,20 @@ void VulkanEngine::Run() noexcept
                         m_needRender = true;
                     }
                     break;
+                case SDL_KEYDOWN:
+                    if (event.key.keysym.sym == SDLK_F5) {
+                        m_isFlyCameraMode = !m_isFlyCameraMode;
+                        SDL_SetRelativeMouseMode(m_isFlyCameraMode ? SDL_TRUE : SDL_FALSE);
+                    }
+                    break;
 
                 default:
                     break;
             }
 
+            if (m_isFlyCameraMode) {
+                m_mainCamera.ProcessSDLEvent(event);
+            }
             ImGui_ImplSDL2_ProcessEvent(&event);
         }
 
@@ -498,9 +512,7 @@ void VulkanEngine::RenderGeometry(VkCommandBuffer pCmdBuf) noexcept
 
 void VulkanEngine::RenderDbgUI() noexcept
 {
-    if (ImGui::Begin("Debug info")) {
-        ImGui::SliderInt("Mesh Index", &m_currMeshIdx, 0, 2);
-            
+    if (ImGui::Begin("Debug info")) {            
 		ComputeEffect& selected = m_backgroundEffects[m_currBackgroundEffect];
 		
 		ImGui::Text("Selected effect: %s", selected.name.data());
@@ -535,6 +547,10 @@ void VulkanEngine::RenderDbgUI() noexcept
 
             ImGui::EndCombo();
         }
+
+        ImGui::Text("Is Fly Camera (F5):");
+        ImGui::SameLine();
+        ImGui::TextColored(m_isFlyCameraMode ? ImVec4(0.f, 1.f, 0.f, 1.f) : ImVec4(1.f, 0.f, 0.f, 1.f), m_isFlyCameraMode ? "true" : "false");
 
         ImGui::End();
 	}
@@ -830,10 +846,6 @@ bool VulkanEngine::InitPipelines() noexcept
         return false;
     }
 
-    if (!InitMeshPipeline()) {
-        return false;
-    }
-
     m_metalRoughMaterial.BuildPipelines(this);
 
     return true;
@@ -842,17 +854,15 @@ bool VulkanEngine::InitPipelines() noexcept
 
 bool VulkanEngine::InitBackgroundPipelines() noexcept
 {
-    VkPipelineLayoutCreateInfo layoutCreateInfo = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &m_pComputeBackgroundDescriptorLayout,
-    };
+    VkPipelineLayoutCreateInfo layoutCreateInfo = {};
+    layoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutCreateInfo.setLayoutCount = 1;
+    layoutCreateInfo.pSetLayouts = &m_pComputeBackgroundDescriptorLayout;
 
-    VkPushConstantRange pushConstRange = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(ComputePushConstants),
-    };
+    VkPushConstantRange pushConstRange = {};
+    pushConstRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstRange.offset = 0;
+    pushConstRange.size = sizeof(ComputePushConstants);
 
     layoutCreateInfo.pPushConstantRanges = &pushConstRange;
     layoutCreateInfo.pushConstantRangeCount = 1;
@@ -913,59 +923,6 @@ bool VulkanEngine::InitBackgroundPipelines() noexcept
         for (ComputeEffect& effect : m_backgroundEffects) {
             vkDestroyPipeline(m_pVkDevice, effect.pipeline, nullptr);
         }
-	});
-
-    return true;
-}
-
-
-bool VulkanEngine::InitMeshPipeline() noexcept
-{
-    VkShaderModule triangleFragShader;
-	if (!vkutil::LoadShaderModule(ENG_TEX_IMAGE_PS_PATH, m_pVkDevice, triangleFragShader)) {
-		ENG_ASSERT_FAIL("Error when building the triangle fragment shader module");
-        return false;
-	}
-
-	VkShaderModule triangleVertexShader;
-	if (!vkutil::LoadShaderModule(ENG_COLORED_TRIANGLE_MESH_VS_PATH, m_pVkDevice, triangleVertexShader)) {
-		ENG_ASSERT_FAIL("Error when building the mesh triangle vertex shader module");
-        return false;
-	}
-
-	VkPushConstantRange bufferRange = {};
-	bufferRange.offset = 0;
-	bufferRange.size = sizeof(GPUDrawPushConstants);
-	bufferRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-	pipelineLayoutInfo.pPushConstantRanges = &bufferRange;
-	pipelineLayoutInfo.pushConstantRangeCount = 1;
-	pipelineLayoutInfo.pSetLayouts = &m_singleImageDescriptorLayout;
-	pipelineLayoutInfo.setLayoutCount = 1;
-
-	ENG_VK_CHECK(vkCreatePipelineLayout(m_pVkDevice, &pipelineLayoutInfo, nullptr, &m_pMeshPipelineLayout));
-
-    vkutil::PipelineBuilder pipelineBuilder;
-
-	pipelineBuilder.SetLayout(m_pMeshPipelineLayout);
-	pipelineBuilder.SetShaders(triangleVertexShader, triangleFragShader);
-	pipelineBuilder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-	pipelineBuilder.SetPolygonMode(VK_POLYGON_MODE_FILL);
-	pipelineBuilder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
-	pipelineBuilder.DisableMultisampling();
-	pipelineBuilder.SetAlphaBlending();
-	pipelineBuilder.SetDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	pipelineBuilder.SetColorAttachmentFormat(m_rndImage.format);
-	pipelineBuilder.SetDepthAttachmentFormat(m_depthImage.format);
-	m_pMeshPipeline = pipelineBuilder.Build(m_pVkDevice);
-
-	vkDestroyShaderModule(m_pVkDevice, triangleFragShader, nullptr);
-	vkDestroyShaderModule(m_pVkDevice, triangleVertexShader, nullptr);
-
-	m_mainDeletionQueue.PushDeletor([&]() {
-		vkDestroyPipelineLayout(m_pVkDevice, m_pMeshPipelineLayout, nullptr);
-		vkDestroyPipeline(m_pVkDevice, m_pMeshPipeline, nullptr);
 	});
 
     return true;
@@ -1141,6 +1098,8 @@ void VulkanEngine::ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&
 
 void VulkanEngine::UpdateScene()
 {
+    m_mainCamera.Update();
+
     m_mainDrawContext.opaqueSurfaces.clear();
 
 	m_loadedNodes["Suzanne"]->Render(glm::identity<glm::mat4>(), m_mainDrawContext);
@@ -1152,11 +1111,14 @@ void VulkanEngine::UpdateScene()
 		m_loadedNodes["Cube"]->Render(translation * scale, m_mainDrawContext);
 	}
 
-	m_sceneData.viewMat = glm::translate(glm::vec3(0.f, 0.f, -5.f));
-	m_sceneData.projMat = glm::perspective(glm::radians(70.f), (float)m_windowExtent.width / (float)m_windowExtent.height, 10000.f, 0.1f);
+    const glm::mat4 viewMat = m_mainCamera.GetViewMatrix();
+    glm::mat4 projMat = glm::perspective(glm::radians(70.f), (float)m_windowExtent.width / (float)m_windowExtent.height, 10000.f, 0.1f);
 
-	m_sceneData.projMat[1][1] *= -1;
-	m_sceneData.viewProjMat = m_sceneData.projMat * m_sceneData.viewMat;
+    projMat[1][1] *= -1;
+
+	m_sceneData.viewMat = viewMat;
+	m_sceneData.projMat = projMat;
+	m_sceneData.viewProjMat = projMat * viewMat;
 
 	m_sceneData.ambientColor = glm::vec4(0.1f);
 	m_sceneData.sunLightColor = glm::vec4(1.f);
