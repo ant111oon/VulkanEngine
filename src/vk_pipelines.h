@@ -34,7 +34,7 @@ namespace vkutil
 
         VkPipeline Build(VkDevice pDevice) noexcept;
 
-    private:
+    public:
         std::vector<VkPipelineShaderStageCreateInfo> m_shaderStages;
 
         VkPipelineInputAssemblyStateCreateInfo m_inputAssembly;

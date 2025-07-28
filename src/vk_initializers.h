@@ -33,4 +33,6 @@ namespace vkinit
     VkRenderingInfo RenderingInfo(const VkExtent2D& extent, const VkRenderingAttachmentInfo* pColorAttachment, const VkRenderingAttachmentInfo* pDepthAttachment) noexcept;
 
     VkPipelineShaderStageCreateInfo PipelineShaderStageCreateInfo(VkShaderStageFlagBits stage, VkShaderModule pShaderModule, const char* pEntry = "main") noexcept;
+
+    VkPipelineLayoutCreateInfo PipelineLayoutCreateInfo() noexcept;
 }

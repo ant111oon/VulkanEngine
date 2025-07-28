@@ -33,7 +33,10 @@ static const std::filesystem::path ENG_SKY_CS_PATH = "../shaders/bin/sky.comp.sp
 static const std::filesystem::path ENG_COLORED_TRIANGLE_PS_PATH = "../shaders/bin/colored_mesh.frag.spv";
 static const std::filesystem::path ENG_TEX_IMAGE_PS_PATH = "../shaders/bin/tex_image.frag.spv";
 static const std::filesystem::path ENG_COLORED_TRIANGLE_MESH_VS_PATH = "../shaders/bin/colored_mesh.vert.spv";
-static const std::filesystem::path ENG_BASIC_MESH_PATH = "../assets/basicmesh.glb";
+static const std::filesystem::path ENG_MESH_VS_PATH = "../shaders/bin/mesh.vert.spv";
+static const std::filesystem::path ENG_MESH_FS_PATH = "../shaders/bin/mesh.frag.spv";
+
+static const std::filesystem::path ENG_BASIC_GLTF_MESH_PATH = "../assets/basicmesh.glb";
 
 
 #define ENG_RND_BACKGROUND_VERSION_CLEAR 0
@@ -46,6 +49,97 @@ static const std::filesystem::path ENG_BASIC_MESH_PATH = "../assets/basicmesh.gl
         ENG_ASSERT_FAIL("[SDL ERROR]: {}", SDL_GetError()); \
         return __VA_ARGS__;                                 \
     }
+
+
+void GLTFMetallic_Roughness::BuildPipelines(VulkanEngine* pEngine)
+{
+    VkShaderModule meshFragShader;
+	if (!vkutil::LoadShaderModule(ENG_MESH_FS_PATH, pEngine->m_pVkDevice, meshFragShader)) {
+		ENG_ASSERT_FAIL("Failed to load shader module: {}", ENG_MESH_FS_PATH.string().c_str());
+	}
+
+	VkShaderModule meshVertexShader;
+	if (!vkutil::LoadShaderModule(ENG_MESH_VS_PATH, pEngine->m_pVkDevice, meshVertexShader)) {
+		ENG_ASSERT_FAIL("Failed to load shader module: {}", ENG_MESH_VS_PATH.string().c_str());
+	}
+
+	VkPushConstantRange matrixRange = {};
+	matrixRange.offset = 0;
+	matrixRange.size = sizeof(MeshDrawPushConstants);
+	matrixRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    DescriptorLayoutBuilder layoutBuilder;
+    layoutBuilder.AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    layoutBuilder.AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	layoutBuilder.AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+
+    descSetLayout = layoutBuilder.Build(pEngine->m_pVkDevice, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+
+	VkDescriptorSetLayout layouts[] = { pEngine->m_pSceneDataDescriptorLayout, descSetLayout };
+
+	VkPipelineLayoutCreateInfo meshLayoutInfo = vkinit::PipelineLayoutCreateInfo();
+	meshLayoutInfo.setLayoutCount = 2;
+	meshLayoutInfo.pSetLayouts = layouts;
+	meshLayoutInfo.pPushConstantRanges = &matrixRange;
+	meshLayoutInfo.pushConstantRangeCount = 1;
+
+	VkPipelineLayout newLayout;
+	ENG_VK_CHECK(vkCreatePipelineLayout(pEngine->m_pVkDevice, &meshLayoutInfo, nullptr, &newLayout));
+
+    opaquePipeline.layout = newLayout;
+    transparentPipeline.layout = newLayout;
+
+	vkutil::PipelineBuilder pipelineBuilder;
+	pipelineBuilder.SetShaders(meshVertexShader, meshFragShader);
+	pipelineBuilder.SetInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+	pipelineBuilder.SetPolygonMode(VK_POLYGON_MODE_FILL);
+	pipelineBuilder.SetCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+	pipelineBuilder.DisableMultisampling();
+	pipelineBuilder.DisableBlending();
+	pipelineBuilder.SetDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	pipelineBuilder.SetColorAttachmentFormat(pEngine->m_rndImage.format);
+	pipelineBuilder.SetDepthAttachmentFormat(pEngine->m_depthImage.format);
+	pipelineBuilder.m_pipelineLayout = newLayout;
+
+    opaquePipeline.pipeline = pipelineBuilder.Build(pEngine->m_pVkDevice);
+
+	pipelineBuilder.SetAdditiveBlending();
+
+	pipelineBuilder.SetDepthTest(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+
+	transparentPipeline.pipeline = pipelineBuilder.Build(pEngine->m_pVkDevice);
+	
+	vkDestroyShaderModule(pEngine->m_pVkDevice, meshFragShader, nullptr);
+	vkDestroyShaderModule(pEngine->m_pVkDevice, meshVertexShader, nullptr);
+}
+
+
+void GLTFMetallic_Roughness::ClearResources(VkDevice device)
+{
+    vkDestroyDescriptorSetLayout(device, descSetLayout, nullptr);
+	vkDestroyPipelineLayout(device, transparentPipeline.layout, nullptr);
+
+	vkDestroyPipeline(device, transparentPipeline.pipeline, nullptr);
+	vkDestroyPipeline(device, opaquePipeline.pipeline, nullptr);
+}
+
+
+MaterialInstance GLTFMetallic_Roughness::WriteMaterial(VkDevice device, MaterialPass pass, const MaterialResources& resources, DescriptorAllocatorGrowable& descriptorAllocator)
+{
+    MaterialInstance matData = {};
+	matData.passType = pass;
+    matData.pPipeline = pass == MaterialPass::TRANSPARENT ? &transparentPipeline : &opaquePipeline;
+	matData.descriptorSet = descriptorAllocator.Allocate(device, descSetLayout);
+
+	descWriter.Clear();
+	descWriter.WriteBuffer(0, resources.dataBuffer, sizeof(MaterialConstants), resources.dataBufferOffset, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+	descWriter.WriteImage(1, resources.colorImage.pImageView, resources.colorSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	descWriter.WriteImage(2, resources.metalRoughImage.pImageView, resources.metalRoughSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+
+	descWriter.UpdateSet(device, matData.descriptorSet);
+
+	return matData;
+}
 
 
 VulkanEngine& VulkanEngine::GetInstance() noexcept
@@ -127,6 +221,8 @@ void VulkanEngine::Terminate() noexcept
     
         m_framesData[i].deletionQueue.Flush();
     }
+
+    m_metalRoughMaterial.ClearResources(m_pVkDevice);
 
     m_mainDeletionQueue.Flush();
 
@@ -718,7 +814,17 @@ bool VulkanEngine::InitDescriptors() noexcept
 
 bool VulkanEngine::InitPipelines() noexcept
 {
-    return InitBackgroundPipelines() && InitMeshPipeline();
+    if (!InitBackgroundPipelines()) {
+        return false;
+    }
+
+    if (!InitMeshPipeline()) {
+        return false;
+    }
+
+    m_metalRoughMaterial.BuildPipelines(this);
+
+    return true;
 }
 
 
@@ -856,7 +962,7 @@ bool VulkanEngine::InitMeshPipeline() noexcept
 
 void VulkanEngine::InitDefaultData() noexcept
 {
-    m_testMeshes = LoadGLTFMeshes(*this, ENG_BASIC_MESH_PATH).value();
+    m_testMeshes = LoadGLTFMeshes(*this, ENG_BASIC_GLTF_MESH_PATH).value();
 
     const uint32_t whiteColorU32 = glm::packUnorm4x8(glm::vec4(1.f));
 	m_whiteImage = CreateImage(VkExtent3D{ 1, 1, 1 }, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, (const void*)&whiteColorU32);
@@ -886,6 +992,28 @@ void VulkanEngine::InitDefaultData() noexcept
 	samplerInfo.magFilter = VK_FILTER_LINEAR;
 	samplerInfo.minFilter = VK_FILTER_LINEAR;
 	vkCreateSampler(m_pVkDevice, &samplerInfo, nullptr, &m_linearSampler);
+
+    GLTFMetallic_Roughness::MaterialResources materialResources;
+	materialResources.colorImage = m_whiteImage;
+	materialResources.colorSampler = m_linearSampler;
+	materialResources.metalRoughImage = m_whiteImage;
+	materialResources.metalRoughSampler = m_linearSampler;
+
+	BufferHandle materialConstants = CreateBuffer(sizeof(GLTFMetallic_Roughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+	GLTFMetallic_Roughness::MaterialConstants* pSceneUniformData = (GLTFMetallic_Roughness::MaterialConstants*)materialConstants.pAllocation->GetMappedData();
+	pSceneUniformData->colorFactors = glm::vec4{1,1,1,1};
+	pSceneUniformData->metallicRoughnessFactors = glm::vec4{1,0.5,0,0};
+
+	m_mainDeletionQueue.PushDeletor([=, this]() {
+		BufferHandle buffer = materialConstants;
+        DestroyBuffer(buffer);
+	});
+
+	materialResources.dataBuffer = materialConstants.pBuffer;
+	materialResources.dataBufferOffset = 0;
+
+	m_defaultData = m_metalRoughMaterial.WriteMaterial(m_pVkDevice, MaterialPass::OPAQUE, materialResources, m_globalDescriptorAllocator);
 
 	m_mainDeletionQueue.PushDeletor([&]() {
         for (std::shared_ptr<MeshAsset>& pMesh : m_testMeshes) {

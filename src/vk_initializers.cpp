@@ -211,4 +211,13 @@ namespace vkinit
 
         return info;
     }
+    
+    
+    VkPipelineLayoutCreateInfo PipelineLayoutCreateInfo() noexcept
+    {
+        VkPipelineLayoutCreateInfo info = {};
+        info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        
+        return info;
+    }
 }

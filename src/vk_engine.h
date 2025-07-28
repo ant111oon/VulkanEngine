@@ -36,6 +36,54 @@ private:
 };
 
 
+struct RenderObject
+{
+    uint32_t indexCount;
+    uint32_t firstIndex;
+    VkBuffer indexBuffer;
+    
+    MaterialInstance* pMaterial;
+
+    glm::mat4 transform;
+    VkDeviceAddress vertexBufferAddress;
+};
+
+
+struct GLTFMetallic_Roughness
+{
+    struct MaterialResources;
+
+    void BuildPipelines(VulkanEngine* pEngine);
+	void ClearResources(VkDevice device);
+
+	MaterialInstance WriteMaterial(VkDevice device, MaterialPass pass, const MaterialResources& resources, DescriptorAllocatorGrowable& descriptorAllocator);
+
+	struct MaterialConstants
+    {
+		glm::vec4 colorFactors;
+		glm::vec4 metallicRoughnessFactors;
+		glm::vec4 PADDING[14];
+	};
+
+	struct MaterialResources
+    {
+		ImageHandle colorImage;
+		VkSampler colorSampler;
+		ImageHandle metalRoughImage;
+		VkSampler metalRoughSampler;
+		VkBuffer dataBuffer;
+		uint32_t dataBufferOffset;
+	};
+
+    MaterialPipeline opaquePipeline;
+	MaterialPipeline transparentPipeline;
+
+	VkDescriptorSetLayout descSetLayout;
+
+	DescriptorWriter descWriter;
+};
+
+
 class VulkanEngine final
 {
 private:
@@ -59,23 +107,14 @@ private:
         glm::vec4 data[4];
     };
 
-    struct ComputeEffect {
+    struct ComputeEffect
+    {
         std::string_view name;
 
         VkPipeline pipeline;
         VkPipelineLayout layout;
 
         ComputePushConstants data;
-    };
-
-    struct SceneData
-    {
-        glm::mat4 viewMat;
-        glm::mat4 projMat;
-        glm::mat4 viewProjMat;
-        glm::vec4 ambientColor;
-        glm::vec4 sunLightDirectionAndPower;
-        glm::vec4 sunLightColor;
     };
 
 public:
@@ -134,7 +173,7 @@ private:
 
     FrameData& GetCurrentFrameData() noexcept { return m_framesData[m_frameNumber % FRAMES_DATA_INST_COUNT]; }
 
-private:
+public:
     struct SDL_Window* m_pWindow = nullptr;
 	VkExtent2D m_windowExtent = { 1000 , 720 };
 
@@ -190,6 +229,9 @@ private:
     VkDescriptorSetLayout m_pSceneDataDescriptorLayout;
 
     VkDescriptorSetLayout m_singleImageDescriptorLayout;
+
+    MaterialInstance m_defaultData;
+    GLTFMetallic_Roughness m_metalRoughMaterial;
 
     ImageHandle m_whiteImage;
 	ImageHandle m_blackImage;

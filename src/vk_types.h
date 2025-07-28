@@ -54,6 +54,40 @@ struct MeshDrawPushConstants
 };
 
 
+enum class MaterialPass : uint8_t
+{
+    OPAQUE,
+    TRANSPARENT,
+    OTHER
+};
+
+
+struct MaterialPipeline
+{
+	VkPipeline pipeline;
+	VkPipelineLayout layout;
+};
+
+
+struct SceneData
+{
+    glm::mat4 viewMat;
+    glm::mat4 projMat;
+    glm::mat4 viewProjMat;
+    glm::vec4 ambientColor;
+    glm::vec4 sunLightDirectionAndPower;
+    glm::vec4 sunLightColor;
+};
+
+
+struct MaterialInstance
+{
+    MaterialPipeline* pPipeline;
+    VkDescriptorSet descriptorSet;
+    MaterialPass passType;
+};
+
+
 #ifdef ENG_DEBUG
     #define ENG_VK_CHECK(RESULT)                                                                        \
         do {                                                                                            \
