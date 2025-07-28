@@ -49,6 +49,12 @@ struct RenderObject
 };
 
 
+struct RenderContext
+{
+	std::vector<RenderObject> opaqueSurfaces;
+};
+
+
 struct GLTFMetallic_Roughness
 {
     struct MaterialResources;
@@ -81,6 +87,14 @@ struct GLTFMetallic_Roughness
 	VkDescriptorSetLayout descSetLayout;
 
 	DescriptorWriter descWriter;
+};
+
+
+struct MeshNode : public Node
+{
+	void Render(const glm::mat4& topMatrix, RenderContext& ctx) override;
+
+	std::shared_ptr<MeshAsset> pMesh;
 };
 
 
@@ -165,6 +179,8 @@ private:
     bool InitImGui() noexcept;
     void ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&& function) const noexcept;
 
+    void UpdateScene();
+
     BufferHandle CreateBuffer(size_t size, VkBufferUsageFlags bufUsage, VmaMemoryUsage memUsage) const noexcept;
     void DestroyBuffer(BufferHandle& buffer) const noexcept;
 
@@ -227,6 +243,9 @@ public:
 
     SceneData m_sceneData;
     VkDescriptorSetLayout m_pSceneDataDescriptorLayout;
+
+    RenderContext m_mainDrawContext;
+    std::unordered_map<std::string, std::shared_ptr<Node>> m_loadedNodes;
 
     VkDescriptorSetLayout m_singleImageDescriptorLayout;
 

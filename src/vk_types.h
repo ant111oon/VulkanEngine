@@ -47,7 +47,7 @@ struct MeshGpuBuffers
 };
 
 
-struct MeshDrawPushConstants
+struct GPUDrawPushConstants
 {
     glm::mat4 transform;
     VkDeviceAddress vertBufferGpuAddress;
@@ -85,6 +85,40 @@ struct MaterialInstance
     MaterialPipeline* pPipeline;
     VkDescriptorSet descriptorSet;
     MaterialPass passType;
+};
+
+
+struct RenderContext;
+
+
+class IRenderable {
+
+    virtual void Render(const glm::mat4& topMatrix, RenderContext& ctx) = 0;
+};
+
+struct Node : public IRenderable
+{
+    void RefreshTransform(const glm::mat4& parentTrs)
+    {
+        worldTrs = parentTrs * localTrs;
+        
+        for (std::shared_ptr<Node>& pChild : childrens) {
+            pChild->RefreshTransform(worldTrs);
+        }
+    }
+
+    virtual void Render(const glm::mat4& topMatrix, RenderContext& ctx) override
+    {
+        for (std::shared_ptr<Node>& pChild : childrens) {
+            pChild->Render(topMatrix, ctx);
+        }
+    }
+
+    std::weak_ptr<Node> pParent;
+    std::vector<std::shared_ptr<Node>> childrens;
+
+    glm::mat4 localTrs;
+    glm::mat4 worldTrs;
 };
 
 

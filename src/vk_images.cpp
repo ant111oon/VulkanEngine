@@ -56,16 +56,15 @@ namespace vkutil
         blitRegion.dstSubresource.layerCount = 1;
         blitRegion.dstSubresource.mipLevel = 0;
 
-        VkBlitImageInfo2 blitInfo = {
-            .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
-            .srcImage = pSrcImage,
-            .dstImage = pDstImage,
-            .pRegions = &blitRegion,
-            .regionCount = 1,
-            .srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .filter = filter,
-        };
+        VkBlitImageInfo2 blitInfo = {};
+        blitInfo.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
+        blitInfo.srcImage = pSrcImage;
+        blitInfo.dstImage = pDstImage;
+        blitInfo.pRegions = &blitRegion;
+        blitInfo.regionCount = 1;
+        blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        blitInfo.filter = filter;
 
         vkCmdBlitImage2(pCmdBuf, &blitInfo);
     }
