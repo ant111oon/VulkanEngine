@@ -1304,7 +1304,11 @@ ImageHandle VulkanEngine::CreateImage(const VkExtent3D& extent, VkFormat format,
     
             vkCmdCopyBufferToImage(cmdBuffer, stagingBuffer.pBuffer, image.pImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
     
-            vkutil::TransitImage(cmdBuffer, image.pImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            if (mipmapped) {
+                vkutil::GenerateMipmaps(cmdBuffer, image.pImage, VkExtent2D{image.extent.width, image.extent.height});
+            } else {
+                vkutil::TransitImage(cmdBuffer, image.pImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
         });
     
         DestroyBuffer(stagingBuffer);
