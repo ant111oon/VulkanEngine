@@ -45,6 +45,7 @@ struct RenderObject
     VkBuffer indexBuffer;
     
     MaterialInstance* pMaterial;
+    Bounds bounds;
 
     glm::mat4 transform;
     VkDeviceAddress vertexBufferAddress;
@@ -98,6 +99,16 @@ struct MeshNode : public Node
 	void Render(const glm::mat4& topMatrix, RenderContext& ctx) override;
 
 	std::shared_ptr<MeshAsset> pMesh;
+};
+
+
+struct EngineStats
+{
+    float frameTime;
+    float sceneUpdateTime;
+    float meshRenderTime;
+    int triangleCount;
+    int drawCallCount;
 };
 
 
@@ -256,6 +267,7 @@ public:
     VkSampler m_linearSampler;
 
     Camera m_mainCamera;
+    EngineStats m_stats;
 
 	uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;

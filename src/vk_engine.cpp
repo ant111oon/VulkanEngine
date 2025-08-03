@@ -52,6 +52,42 @@ static const std::filesystem::path ENG_STRUCTURE_GLTF_MESH_PATH = "../assets/str
     }
 
 
+static bool IsRendObjVisible(const RenderObject& obj, const glm::mat4& viewproj)
+{
+    static constexpr std::array corners = {
+        glm::vec3 {  1,  1,  1 },
+        glm::vec3 {  1,  1, -1 },
+        glm::vec3 {  1, -1,  1 },
+        glm::vec3 {  1, -1, -1 },
+        glm::vec3 { -1,  1,  1 },
+        glm::vec3 { -1,  1, -1 },
+        glm::vec3 { -1, -1,  1 },
+        glm::vec3 { -1, -1, -1 },
+    };
+
+    const glm::mat4 matrix = viewproj * obj.transform;
+
+    glm::vec3 min(1.5f);
+    glm::vec3 max(-1.5f);
+
+    for (size_t c = 0; c < corners.size(); ++c) {
+        const glm::vec4 boundCornerLPos = glm::vec4(obj.bounds.origin + (corners[c] * obj.bounds.extents), 1.f);
+        glm::vec4 v = matrix * boundCornerLPos;
+
+        v = v / v.w;
+
+        min = glm::min(glm::vec3(v.x, v.y, v.z), min);
+        max = glm::max(glm::vec3(v.x, v.y, v.z), max);
+    }
+
+    if (min.z > 1.f || max.z < 0.f || min.x > 1.f || max.x < -1.f || min.y > 1.f || max.y < -1.f) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
+
 void GLTFMetallic_Roughness::BuildPipelines(VulkanEngine* pEngine)
 {
     VkShaderModule meshFragShader;
@@ -148,15 +184,15 @@ void MeshNode::Render(const glm::mat4& topMatrix, RenderContext& ctx)
     glm::mat4 nodeMatrix = topMatrix * worldTrs;
 
 	for (GeoSurface& surface : pMesh->surfaces) {
-		RenderObject def;
+		RenderObject def = {};
 		def.indexCount = surface.count;
 		def.firstIndex = surface.startIndex;
 		def.indexBuffer = pMesh->meshBuffers.idxBuff.pBuffer;
 		def.pMaterial = &surface.material->data;
-
+        def.bounds = surface.bounds;
 		def.transform = nodeMatrix;
 		def.vertexBufferAddress = pMesh->meshBuffers.vertBufferGpuAddress;
-		
+        
         if (def.pMaterial->passType == MaterialPass::OPAQUE) {
             ctx.opaqueSurfaces.push_back(def);
         } else {
@@ -286,6 +322,8 @@ void VulkanEngine::Run() noexcept
     
     SDL_Event event;
     while (!isQuit) {
+        auto startTime = std::chrono::system_clock::now();
+
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
                 case SDL_QUIT:
@@ -333,6 +371,10 @@ void VulkanEngine::Run() noexcept
         ImGui::Render();
 
         Render();
+
+        auto endTime = std::chrono::system_clock::now();
+        auto elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+        m_stats.frameTime = elapsedTime.count() / 1000.f;
     }
 }
 
@@ -461,29 +503,16 @@ void VulkanEngine::RenderBackground(VkCommandBuffer pCmdBuf) noexcept
 
 void VulkanEngine::RenderGeometry(VkCommandBuffer pCmdBuf) noexcept
 {
+    m_stats.drawCallCount = 0;
+    m_stats.triangleCount = 0;
+    
+    auto start = std::chrono::system_clock::now();
+
     VkRenderingAttachmentInfo colorAttachment = vkinit::RenderingAttachmentInfo(m_rndImage.pImageView, std::nullopt, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     VkRenderingAttachmentInfo depthAttachment = vkinit::DepthAttachmentInfo(m_depthImage.pImageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
 	VkRenderingInfo renderInfo = vkinit::RenderingInfo(m_rndExtent, &colorAttachment, &depthAttachment);
 	vkCmdBeginRendering(pCmdBuf, &renderInfo);
-
-	VkViewport viewport = {};
-	viewport.x = 0;
-	viewport.y = 0;
-	viewport.width = m_rndExtent.width;
-	viewport.height = m_rndExtent.height;
-	viewport.minDepth = 0.f;
-	viewport.maxDepth = 1.f;
-
-	vkCmdSetViewport(pCmdBuf, 0, 1, &viewport);
-
-	VkRect2D scissor = {};
-	scissor.offset.x = 0;
-	scissor.offset.y = 0;
-	scissor.extent.width = m_rndExtent.width;
-	scissor.extent.height = m_rndExtent.height;
-
-	vkCmdSetScissor(pCmdBuf, 0, 1, &scissor);
 
 	BufferHandle gpuSceneDataBuffer = CreateBuffer(sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
@@ -503,12 +532,48 @@ void VulkanEngine::RenderGeometry(VkCommandBuffer pCmdBuf) noexcept
 	writer.WriteBuffer(0, gpuSceneDataBuffer.pBuffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 	writer.UpdateSet(m_pVkDevice, globalDescriptor);
 
-    auto Render = [&](const RenderObject& obj) {
-        vkCmdBindPipeline(pCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS,  obj.pMaterial->pPipeline->pipeline);
-		vkCmdBindDescriptorSets(pCmdBuf,VK_PIPELINE_BIND_POINT_GRAPHICS, obj.pMaterial->pPipeline->layout, 0, 1, &globalDescriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(pCmdBuf,VK_PIPELINE_BIND_POINT_GRAPHICS, obj.pMaterial->pPipeline->layout, 1, 1, &obj.pMaterial->descriptorSet, 0, nullptr);
+    MaterialPipeline* pLastPipeline = nullptr;
+    MaterialInstance* pLastMaterial = nullptr;
+    VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
 
-		vkCmdBindIndexBuffer(pCmdBuf, obj.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+    auto Render = [&](const RenderObject& obj) {
+        if (obj.pMaterial != pLastMaterial) {
+            pLastMaterial = obj.pMaterial;
+            
+            if (obj.pMaterial->pPipeline != pLastPipeline) {
+                pLastPipeline = obj.pMaterial->pPipeline;
+
+                vkCmdBindPipeline(pCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, obj.pMaterial->pPipeline->pipeline);
+                vkCmdBindDescriptorSets(pCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, obj.pMaterial->pPipeline->layout, 0, 1, 
+                    &globalDescriptor, 0, nullptr);
+
+                VkViewport viewport = {};
+                viewport.x = 0;
+                viewport.y = 0;
+                viewport.width = m_rndExtent.width;
+                viewport.height = m_rndExtent.height;
+                viewport.minDepth = 0.f;
+                viewport.maxDepth = 1.f;
+
+                vkCmdSetViewport(pCmdBuf, 0, 1, &viewport);
+
+                VkRect2D scissor = {};
+                scissor.offset.x = 0;
+                scissor.offset.y = 0;
+                scissor.extent.width = m_rndExtent.width;
+                scissor.extent.height = m_rndExtent.height;
+
+                vkCmdSetScissor(pCmdBuf, 0, 1, &scissor);
+            }
+
+            vkCmdBindDescriptorSets(pCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, obj.pMaterial->pPipeline->layout, 1, 1, 
+                &obj.pMaterial->descriptorSet, 0, nullptr);
+        }
+
+        if (obj.indexBuffer != lastIndexBuffer) {
+            lastIndexBuffer = obj.indexBuffer;
+            vkCmdBindIndexBuffer(pCmdBuf, obj.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        }
 
 		GPUDrawPushConstants pushConstants;
 		pushConstants.vertBufferGpuAddress = obj.vertexBufferAddress;
@@ -516,23 +581,42 @@ void VulkanEngine::RenderGeometry(VkCommandBuffer pCmdBuf) noexcept
 		vkCmdPushConstants(pCmdBuf, obj.pMaterial->pPipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
 
 		vkCmdDrawIndexed(pCmdBuf, obj.indexCount, 1, obj.firstIndex, 0, 0);
+
+        m_stats.drawCallCount++;
+        m_stats.triangleCount += obj.indexCount / 3;   
     };
 
-	for (const RenderObject& obj : m_mainDrawContext.opaqueSurfaces) {
-		Render(obj);
-	}
+    std::vector<uint32_t> opaqueDraws;
+    opaqueDraws.reserve(m_mainDrawContext.opaqueSurfaces.size());
 
-    std::sort(m_mainDrawContext.transparentSurfaces.begin(), m_mainDrawContext.transparentSurfaces.end(), [&](const RenderObject& l, const RenderObject& r){
-        const glm::vec3 camToLVec = glm::vec3(l.transform[3]) - m_mainCamera.position;
-        const glm::vec3 camToRVec = glm::vec3(r.transform[3]) - m_mainCamera.position;
-        return glm::dot(camToLVec, camToLVec) < glm::dot(camToRVec, camToRVec);
+    for (uint32_t i = 0; i < m_mainDrawContext.opaqueSurfaces.size(); i++) {
+        if (IsRendObjVisible(m_mainDrawContext.opaqueSurfaces[i], m_sceneData.viewProjMat)) {
+            opaqueDraws.push_back(i);
+        }
+    }
+
+    std::sort(opaqueDraws.begin(), opaqueDraws.end(), [&](uint32_t iA, uint32_t iB) {
+        const RenderObject& a = m_mainDrawContext.opaqueSurfaces[iA];
+        const RenderObject& b = m_mainDrawContext.opaqueSurfaces[iB];
+
+        return a.pMaterial == b.pMaterial ? a.indexBuffer < b.indexBuffer : a.pMaterial < b.pMaterial;
     });
 
+	for (uint32_t idx : opaqueDraws) {
+		Render(m_mainDrawContext.opaqueSurfaces[idx]);
+	}
+
     for (const RenderObject& obj : m_mainDrawContext.transparentSurfaces) {
-		Render(obj);
+		if (IsRendObjVisible(obj, m_sceneData.viewProjMat)) {
+            Render(obj);
+        }
 	}
 
 	vkCmdEndRendering(pCmdBuf);
+
+    auto end = std::chrono::system_clock::now();
+    
+    m_stats.meshRenderTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.f;
 }
 
 
@@ -582,6 +666,15 @@ void VulkanEngine::RenderDbgUI() noexcept
 
         ImGui::End();
 	}
+
+    if (ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_NoResize)) {
+        ImGui::Text("Frametime %f ms", m_stats.frameTime);
+        ImGui::Text("Draw time %f ms", m_stats.meshRenderTime);
+        ImGui::Text("Update time %f ms", m_stats.sceneUpdateTime);
+        ImGui::Text("Triangles %i", m_stats.triangleCount);
+        ImGui::Text("Draws %i", m_stats.drawCallCount);
+        ImGui::End();
+    }
 }
 
 
@@ -1105,6 +1198,10 @@ void VulkanEngine::ImmediateSubmit(std::function<void(VkCommandBuffer pCmdBuf)>&
 
 void VulkanEngine::UpdateScene()
 {
+    m_stats.sceneUpdateTime = 0;
+    
+    auto start = std::chrono::system_clock::now();
+
     m_mainCamera.Update();
 
     m_mainDrawContext.opaqueSurfaces.clear();
@@ -1124,6 +1221,10 @@ void VulkanEngine::UpdateScene()
 	m_sceneData.ambientColor = glm::vec4(0.1f);
 	m_sceneData.sunLightColor = glm::vec4(1.f);
 	m_sceneData.sunLightDirectionAndPower = glm::vec4(0.f, 1.f, 0.5f, 1.f);
+
+    auto end = std::chrono::system_clock::now();
+    
+    m_stats.sceneUpdateTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.f;
 }
 
 

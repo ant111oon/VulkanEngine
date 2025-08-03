@@ -17,9 +17,18 @@ struct GLTFMaterial
 };
 
 
+struct Bounds
+{
+    glm::vec3 origin;
+    float sphereRadius;
+    glm::vec3 extents;
+};
+
+
 struct GeoSurface
 {
     std::shared_ptr<GLTFMaterial> material;
+    Bounds bounds;
     uint32_t startIndex;
     uint32_t count;
 };
