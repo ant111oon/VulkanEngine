@@ -6,6 +6,10 @@
 #include <unordered_map>
 #include <filesystem>
 
+#include <fastgltf/glm_element_traits.hpp>
+#include <fastgltf/tools.hpp>
+#include <fastgltf/core.hpp>
+
 
 struct GLTFMaterial
 {
@@ -61,3 +65,4 @@ public:
 
 
 std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VulkanEngine* pEngine, const std::filesystem::path& filepath);
+std::optional<ImageHandle> LoadImage(VulkanEngine* pEngine, fastgltf::Asset& asset, fastgltf::Image& image);

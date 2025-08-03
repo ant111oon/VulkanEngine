@@ -157,7 +157,11 @@ void MeshNode::Render(const glm::mat4& topMatrix, RenderContext& ctx)
 		def.transform = nodeMatrix;
 		def.vertexBufferAddress = pMesh->meshBuffers.vertBufferGpuAddress;
 		
-		ctx.opaqueSurfaces.push_back(def);
+        if (def.pMaterial->passType == MaterialPass::OPAQUE) {
+            ctx.opaqueSurfaces.push_back(def);
+        } else {
+            ctx.transparentSurfaces.push_back(def);
+        }
 	}
 
 	Node::Render(topMatrix, ctx);
@@ -499,19 +503,33 @@ void VulkanEngine::RenderGeometry(VkCommandBuffer pCmdBuf) noexcept
 	writer.WriteBuffer(0, gpuSceneDataBuffer.pBuffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 	writer.UpdateSet(m_pVkDevice, globalDescriptor);
 
-	for (const RenderObject& draw : m_mainDrawContext.opaqueSurfaces) {
-		vkCmdBindPipeline(pCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS,  draw.pMaterial->pPipeline->pipeline);
-		vkCmdBindDescriptorSets(pCmdBuf,VK_PIPELINE_BIND_POINT_GRAPHICS, draw.pMaterial->pPipeline->layout, 0, 1, &globalDescriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(pCmdBuf,VK_PIPELINE_BIND_POINT_GRAPHICS, draw.pMaterial->pPipeline->layout, 1, 1, &draw.pMaterial->descriptorSet, 0, nullptr);
+    auto Render = [&](const RenderObject& obj) {
+        vkCmdBindPipeline(pCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS,  obj.pMaterial->pPipeline->pipeline);
+		vkCmdBindDescriptorSets(pCmdBuf,VK_PIPELINE_BIND_POINT_GRAPHICS, obj.pMaterial->pPipeline->layout, 0, 1, &globalDescriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(pCmdBuf,VK_PIPELINE_BIND_POINT_GRAPHICS, obj.pMaterial->pPipeline->layout, 1, 1, &obj.pMaterial->descriptorSet, 0, nullptr);
 
-		vkCmdBindIndexBuffer(pCmdBuf, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdBindIndexBuffer(pCmdBuf, obj.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
 		GPUDrawPushConstants pushConstants;
-		pushConstants.vertBufferGpuAddress = draw.vertexBufferAddress;
-		pushConstants.transform = draw.transform;
-		vkCmdPushConstants(pCmdBuf, draw.pMaterial->pPipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
+		pushConstants.vertBufferGpuAddress = obj.vertexBufferAddress;
+		pushConstants.transform = obj.transform;
+		vkCmdPushConstants(pCmdBuf, obj.pMaterial->pPipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
 
-		vkCmdDrawIndexed(pCmdBuf, draw.indexCount, 1, draw.firstIndex, 0, 0);
+		vkCmdDrawIndexed(pCmdBuf, obj.indexCount, 1, obj.firstIndex, 0, 0);
+    };
+
+	for (const RenderObject& obj : m_mainDrawContext.opaqueSurfaces) {
+		Render(obj);
+	}
+
+    std::sort(m_mainDrawContext.transparentSurfaces.begin(), m_mainDrawContext.transparentSurfaces.end(), [&](const RenderObject& l, const RenderObject& r){
+        const glm::vec3 camToLVec = glm::vec3(l.transform[3]) - m_mainCamera.position;
+        const glm::vec3 camToRVec = glm::vec3(r.transform[3]) - m_mainCamera.position;
+        return glm::dot(camToLVec, camToLVec) < glm::dot(camToRVec, camToRVec);
+    });
+
+    for (const RenderObject& obj : m_mainDrawContext.transparentSurfaces) {
+		Render(obj);
 	}
 
 	vkCmdEndRendering(pCmdBuf);
@@ -1090,6 +1108,7 @@ void VulkanEngine::UpdateScene()
     m_mainCamera.Update();
 
     m_mainDrawContext.opaqueSurfaces.clear();
+    m_mainDrawContext.transparentSurfaces.clear();
 
     m_loadedScenes["structure"]->Render(glm::identity<glm::mat4>(), m_mainDrawContext);
 

@@ -8,10 +8,6 @@
 
 #include <glm/gtx/quaternion.hpp>
 
-#include <fastgltf/glm_element_traits.hpp>
-#include <fastgltf/tools.hpp>
-#include <fastgltf/core.hpp>
-
 #include <stb_image.h>
 
 
@@ -62,6 +58,13 @@ void LoadedGLTF::ClearAll()
     for (auto& [k, v] : meshes) {
 		pCreator->DestroyBuffer(v->meshBuffers.idxBuff);
 		pCreator->DestroyBuffer(v->meshBuffers.vertBuff);
+    }
+
+    for (auto& [k, v] : images) {   
+        if (v.pImage == pCreator->m_checkerboardImage.pImage) {
+            continue;
+        }
+        pCreator->DestroyImage(v);
     }
 
 	for (VkSampler& sampler : samplers) {
@@ -143,7 +146,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VulkanEngine* pEngine, const
     images.reserve(gltf.images.size());
 
     for (fastgltf::Image& image : gltf.images) {  
-        images.push_back(pEngine->m_checkerboardImage);
+        std::optional<ImageHandle> img = LoadImage(pEngine, gltf, image);
+
+		if (img.has_value()) {
+			images.push_back(img.value());
+			file.images[image.name.c_str()] = img.value();
+		} else {
+			images.push_back(pEngine->m_checkerboardImage);
+			fmt::print("gltf failed to load texture {}\n", image.name.c_str());
+		}
     }
 
     file.materialDataBuffer = pEngine->CreateBuffer(sizeof(GLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(),
@@ -337,4 +348,79 @@ std::optional<std::shared_ptr<LoadedGLTF>> LoadGLTF(VulkanEngine* pEngine, const
     }
 
     return pScene;
+}
+
+
+std::optional<ImageHandle> LoadImage(VulkanEngine* pEngine, fastgltf::Asset& asset, fastgltf::Image& image)
+{
+    ImageHandle imageHandle = {};
+
+    int width = 0, height = 0, nrChannels = 0;
+
+    std::visit(
+        fastgltf::visitor {
+            [](auto& arg) {},
+            [&](fastgltf::sources::URI& filePath) {
+                ENG_ASSERT(filePath.fileByteOffset == 0); // We don't support offsets with stbi.
+                ENG_ASSERT(filePath.uri.isLocalPath()); // We're only capable of loading local files.
+
+                const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
+                uint8_t* pData = stbi_load(path.c_str(), &width, &height, &nrChannels, 4);
+                
+                if (pData) {
+                    VkExtent3D imageSize;
+                    imageSize.width = width;
+                    imageSize.height = height;
+                    imageSize.depth = 1;
+
+                    imageHandle = pEngine->CreateImage(imageSize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, pData, false);
+
+                    stbi_image_free(pData);
+                }
+            },
+            [&](fastgltf::sources::Vector& vector) {
+                uint8_t* pData = stbi_load_from_memory((const stbi_uc*)vector.bytes.data(), static_cast<size_t>(vector.bytes.size()), &width, &height, &nrChannels, 4);
+                
+                if (pData) {
+                    VkExtent3D imageSize;
+                    imageSize.width = width;
+                    imageSize.height = height;
+                    imageSize.depth = 1;
+
+                    imageHandle = pEngine->CreateImage(imageSize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, pData, false);
+
+                    stbi_image_free(pData);
+                }
+            },
+            [&](fastgltf::sources::BufferView& view) {
+                auto& bufferView = asset.bufferViews[view.bufferViewIndex];
+                auto& buffer = asset.buffers[bufferView.bufferIndex];
+
+                std::visit(fastgltf::visitor {
+                    [](auto& arg) {},
+                    [&](fastgltf::sources::Vector& vector) {
+                        uint8_t* pData = stbi_load_from_memory((const stbi_uc*)vector.bytes.data() + bufferView.byteOffset,
+                            static_cast<size_t>(bufferView.byteLength), &width, &height, &nrChannels, 4);
+                        
+                        if (pData) {
+                            VkExtent3D imageSize;
+                            imageSize.width = width;
+                            imageSize.height = height;
+                            imageSize.depth = 1;
+
+                            imageHandle = pEngine->CreateImage(imageSize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, pData, false);
+
+                           stbi_image_free(pData);
+                       }
+                   } },
+                buffer.data);
+            },
+        },
+        image.data);
+
+    if (imageHandle.pImage != VK_NULL_HANDLE) {
+        return imageHandle;
+    } else {
+        return std::nullopt;
+    }
 }

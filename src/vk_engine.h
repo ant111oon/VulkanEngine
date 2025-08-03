@@ -54,6 +54,7 @@ struct RenderObject
 struct RenderContext
 {
 	std::vector<RenderObject> opaqueSurfaces;
+	std::vector<RenderObject> transparentSurfaces;
 };
 
 
